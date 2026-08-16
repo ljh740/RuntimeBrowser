@@ -41,7 +41,65 @@
     }
     free(protocolList);
     
-    [ma sortedArrayUsingSelector:@selector(compare:)];
+    [ma sortUsingSelector:@selector(compare:)];
+    
+    return ma;
+}
+
+- (NSArray *)sortedPropertiesRequired:(BOOL)required instanceProperties:(BOOL)instanceProperties displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {
+    Protocol *p = NSProtocolFromString([self protocolName]);
+    if(p == nil) return nil;
+    
+    /*
+     The runtime does not distinguish between required and optional properties:
+     protocol_copyPropertyList2() returns all the properties when asked for the required ones,
+     and none when asked for the optional ones. Instead, the compiler marks the properties
+     declared in an @optional section with the '?' attribute, eg. T@"NSString",?,R,C
+     */
+    
+    NSMutableDictionary *attributesByName = [NSMutableDictionary dictionary];
+    
+    for(NSNumber *n in @[@YES, @NO]) {
+        unsigned int outCount = 0;
+        objc_property_t *properties = NULL;
+        
+        if (@available(macOS 10.12, iOS 10.0, *)) {
+            properties = protocol_copyPropertyList2(p, &outCount, [n boolValue], instanceProperties);
+        } else if(instanceProperties) {
+            properties = protocol_copyPropertyList(p, &outCount);
+        }
+        
+        for(unsigned int i = 0; i < outCount; i++) {
+            const char *nameC = property_getName(properties[i]);
+            const char *attributesC = property_getAttributes(properties[i]);
+            if(nameC == NULL) continue;
+            NSString *name = [NSString stringWithCString:nameC encoding:NSUTF8StringEncoding];
+            NSString *attributes = attributesC ? [NSString stringWithCString:attributesC encoding:NSUTF8StringEncoding] : @"";
+            if(name && attributesByName[name] == nil) attributesByName[name] = attributes;
+        }
+        
+        free(properties);
+    }
+    
+    NSMutableArray *ma = [NSMutableArray array];
+    
+    for(NSString *name in attributesByName) {
+        NSString *attributes = attributesByName[name];
+        
+        BOOL isOptional = [RTBRuntimeHeader isOptionalPropertyWithAttributes:attributes];
+        if(isOptional == required) continue;
+        
+        NSString *description = [RTBRuntimeHeader descriptionForPropertyWithName:name
+                                                                      attributes:attributes
+                                                                 isClassProperty:(instanceProperties == NO)
+                                                  displayPropertiesDefaultValues:displayPropertiesDefaultValues];
+        
+        [ma addObject:@{@"name":name, @"description":description}];
+    }
+    
+    [ma sortUsingComparator:^NSComparisonResult(NSDictionary *d1, NSDictionary *d2) {
+        return [d1[@"name"] compare:d2[@"name"]];
+    }];
     
     return ma;
 }
@@ -88,7 +146,7 @@
 - (NSArray *)children {
     NSMutableArray *ma = [[_conformingClassesStubsSet allObjects] mutableCopy];
     
-    [ma sortedArrayUsingSelector:@selector(compare:)];
+    [ma sortUsingSelector:@selector(compare:)];
     
     return ma;
 }

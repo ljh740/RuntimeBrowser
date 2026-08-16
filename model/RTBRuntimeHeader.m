@@ -25,9 +25,49 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     return [RTBTypeDecoder decodeType:s flat:YES];
 }
 
-+ (NSString *)descriptionForPropertyWithName:(NSString *)name attributes:(NSString *)attributes displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {
++ (NSArray *)componentsOfPropertyAttributes:(NSString *)attributes {
     
-    // https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtPropertyIntrospection.html
+    // like -componentsSeparatedByString:@"," but the commas inside {} () [] belong to the type encoding,
+    // eg. C++ template names in T{pair<int, int>=ii},V_pair
+    
+    NSMutableArray *ma = [NSMutableArray array];
+    
+    NSUInteger depth = 0;
+    NSUInteger start = 0;
+    NSUInteger length = [attributes length];
+    
+    for(NSUInteger i = 0; i < length; i++) {
+        unichar c = [attributes characterAtIndex:i];
+        if(c == '{' || c == '(' || c == '[') {
+            depth++;
+        } else if(c == '}' || c == ')' || c == ']') {
+            if(depth > 0) depth--;
+        } else if(c == ',' && depth == 0) {
+            [ma addObject:[attributes substringWithRange:NSMakeRange(start, i - start)]];
+            start = i + 1;
+        }
+    }
+    
+    [ma addObject:[attributes substringFromIndex:start]];
+    
+    return ma;
+}
+
++ (BOOL)isOptionalPropertyWithAttributes:(NSString *)attributes {
+    for(NSString *attribute in [self componentsOfPropertyAttributes:attributes]) {
+        if([attribute isEqualToString:@"?"]) return YES;
+    }
+    return NO;
+}
+
++ (NSString *)descriptionForPropertyWithName:(NSString *)name attributes:(NSString *)attributes displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {
+    return [self descriptionForPropertyWithName:name attributes:attributes isClassProperty:NO displayPropertiesDefaultValues:displayPropertiesDefaultValues];
+}
+
++ (NSString *)descriptionForPropertyWithName:(NSString *)name attributes:(NSString *)attributes isClassProperty:(BOOL)isClassProperty displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {
+    
+    // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtPropertyIntrospection.html
+    // and clang's ASTContext::getObjCEncodingForPropertyDecl()
     
     NSString *getter = nil;
     NSString *setter = nil;
@@ -35,25 +75,30 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     NSString *atomicity = nil;
     NSString *memory = nil;
     NSString *rw = nil;
-    NSString *comment = nil;
+    NSMutableArray *comments = [NSMutableArray array];
     
-    NSArray *attributesComponents = [attributes componentsSeparatedByString:@","];
+    NSArray *attributesComponents = [self componentsOfPropertyAttributes:attributes];
     for(NSString *attribute in attributesComponents) {
-        NSAssert([attributes length] >= 2, @"");
+        if([attribute length] == 0) continue;
         unichar c = [attribute characterAtIndex:0];
         NSString *tail = [attribute substringFromIndex:1];
         if (c == 'R') rw = @"readonly";
         else if (c == 'C') memory = @"copy";
-        else if (c == '&') memory = @"retain";
+        else if (c == '&') memory = @"retain"; // strong
+        else if (c == 'W') memory = @"weak";
         else if (c == 'G') getter = tail; // custom getter
         else if (c == 'S') setter = tail; // custome setter
-        else if (c == 't' || c == 'T') type = [RTBTypeDecoder decodeType:tail flat:YES]; // Specifies the type using old-style encoding
+        else if (c == 't' || c == 'T') type = [RTBTypeDecoder decodeType:tail flat:YES]; // 't' specifies the type using old-style encoding
         else if (c == 'D') {} // The property is dynamic (@dynamic)
-        else if (c == 'W') {} // The property is a weak reference (__weak)
         else if (c == 'P') {} // The property is eligible for garbage collection
         else if (c == 'N') atomicity = @"nonatomic"; // memory - The property is non-atomic (nonatomic)
-        else if (c == 'V') {} // oneway
-        else comment = [NSString stringWithFormat:@"/* unknown property attribute: %@ */", attribute];
+        else if (c == 'V') {} // The name of the backing instance variable, eg. V_name
+        else if (c == '?') {} // The property was declared in an @optional section of a protocol
+        else [comments addObject:[NSString stringWithFormat:@"/* unknown property attribute: %@ */", attribute]];
+    }
+    
+    if(type == nil) {
+        type = [RTBTypeDecoder decodeType:@"" flat:YES]; // no type encoding at all
     }
     
     if(displayPropertiesDefaultValues) {
@@ -64,6 +109,7 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     NSMutableString *ms = [NSMutableString stringWithString:@"@property "];
     
     NSMutableArray *attributesArray = [NSMutableArray array];
+    if(isClassProperty) [attributesArray addObject:@"class"];
     if(getter)    [attributesArray addObject:[NSString stringWithFormat:@"getter=%@", getter]];
     if(setter)    [attributesArray addObject:[NSString stringWithFormat:@"setter=%@", setter]];
     if(atomicity) [attributesArray addObject:atomicity];
@@ -84,8 +130,8 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     
     [ms appendFormat:@"%@;", name];
     
-    if(comment)
-        [ms appendFormat:@" %@", comment];
+    if([comments count] > 0)
+        [ms appendFormat:@" %@", [comments componentsJoinedByString:@" "]];
     
     return ms;
 }
@@ -110,11 +156,15 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     
     [ms appendString:signAndReturnTypeString];
     
-    BOOL hasArgs = [argumentsTypes count] > 2;
+    // the selector tells how many arguments there are, the type encoding may miss some of them,
+    // eg. -[X vector:] with a simd argument is encoded as v32@0:816 because clang does not encode vector types
+    BOOL hasArgs = [methodName rangeOfString:@":"].location != NSNotFound;
     
     __block NSUInteger paddingIndex = 0;
 
-    BOOL hasBadNumberOfArgTypes = (hasArgs && (([methodNameParts count]) != ([argumentsTypes count] - 2)));
+    NSUInteger numberOfArgTypes = [argumentsTypes count] > 2 ? [argumentsTypes count] - 2 : 0; // self, _cmd, ...
+    
+    BOOL hasBadNumberOfArgTypes = (hasArgs && ([methodNameParts count] != numberOfArgTypes));
     
     [methodNameParts enumerateObjectsUsingBlock:^(NSString *part, NSUInteger i, BOOL *stop) {
         
@@ -140,7 +190,7 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
             if(isLastPart) {
                 [ms appendString:@";"];
                 if(hasBadNumberOfArgTypes) { // happens on iOS 8.3 in SceneKit.framework -[SCNCameraControlEventHandler rotateWithVector:mode:]
-                    NSArray *subArgumentTypes = [argumentsTypes subarrayWithRange:NSMakeRange(2, [argumentsTypes count]-2)];
+                    NSArray *subArgumentTypes = numberOfArgTypes > 0 ? [argumentsTypes subarrayWithRange:NSMakeRange(2, numberOfArgTypes)] : @[];
                     [ms appendFormat:@" // needs %@ arg types, found %@: %@",
                      @([methodNameParts count]),
                      @([subArgumentTypes count]),
@@ -157,6 +207,10 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     
     if([[ma lastObject] hasSuffix:@";"] == NO && hasBadNumberOfArgTypes == NO) {
         [[ma lastObject] appendString:@";"];
+        if(hasArgs == NO && numberOfArgTypes > 0) { // should not happen, but let's not hide it
+            NSArray *subArgumentTypes = [argumentsTypes subarrayWithRange:NSMakeRange(2, numberOfArgTypes)];
+            [[ma lastObject] appendFormat:@" // needs 0 arg types, found %@: %@", @(numberOfArgTypes), [subArgumentTypes componentsJoinedByString:@", "]];
+        }
     }
     
     NSString *joinerString = @"";
@@ -195,15 +249,28 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
 
 + (NSString *)descriptionForProtocol:(Protocol *)protocol selector:(SEL)selector isRequiredMethod:(BOOL)isRequiredMethod isInstanceMethod:(BOOL)isInstanceMethod {
     
+    // the extended type encoding has class names and block signatures, eg. v24@0:8@"NSString"16@?<v@?@"NSError">24
     const char *descriptionString = _protocol_getMethodTypeEncoding(protocol, selector, isRequiredMethod, isInstanceMethod);
-    NSString *argumentTypesEncodedString = [NSString stringWithCString:descriptionString encoding:NSUTF8StringEncoding];
-    NSArray *argumentTypes = [RTBTypeDecoder decodeTypes:argumentTypesEncodedString flat:YES];
-    NSString *returnType = [argumentTypes objectAtIndex:0];
+    
+    if(descriptionString == NULL) {
+        // no extended type encoding, eg. protocols built at runtime, fall back to the plain encoding
+        struct objc_method_description methodDescription = protocol_getMethodDescription(protocol, selector, isRequiredMethod, isInstanceMethod);
+        descriptionString = methodDescription.types;
+    }
+    
+    NSArray *types = nil;
+    if(descriptionString != NULL) {
+        NSString *typesEncodedString = [NSString stringWithCString:descriptionString encoding:NSUTF8StringEncoding];
+        types = [RTBTypeDecoder decodeTypes:typesEncodedString flat:YES];
+    }
+    
+    NSString *returnType = [types count] > 0 ? [types objectAtIndex:0] : [RTBTypeDecoder decodeType:@"" flat:YES];
+    NSArray *argumentTypes = [types count] > 1 ? [types subarrayWithRange:NSMakeRange(1, [types count]-1)] : @[];
     NSString *methodName = NSStringFromSelector(selector);
     
     return [self descriptionForMethodName:methodName
                                returnType:returnType
-                            argumentTypes:[argumentTypes subarrayWithRange:NSMakeRange(1, [argumentTypes count]-1)]
+                            argumentTypes:argumentTypes
                          newlineAfterArgs:NO
                             isClassMethod:(isInstanceMethod == NO)];
 }
@@ -213,8 +280,17 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     
     NSMutableString *header = [NSMutableString string];
     
+    RTBClass *class = [RTBClass classStubWithClass:aClass];
+    
     // top header
-    [header appendFormat:@"/* Generated by RuntimeBrowser\n   Image: %s\n */\n\n", class_getImageName(aClass)];
+    const char *imageName = class_getImageName(aClass);
+    [header appendFormat:@"/* Generated by RuntimeBrowser\n   Image: %s\n", imageName ? imageName : "(null)"];
+    if([class isSwiftClass]) {
+        // Swift classes show up in the Objective-C runtime with mangled names, eg. _TtC10Foundation13__NSSwiftData
+        NSString *demangledName = [class swiftDemangledName];
+        [header appendFormat:@"   Swift class: %@\n", demangledName ? demangledName : [class classObjectName]];
+    }
+    [header appendString:@" */\n\n"];
     
     // @interface NSString : NSObject <NSCopying, NSMutableCopying, NSSecureCoding>
     
@@ -225,8 +301,6 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     Class superClass = class_getSuperclass(aClass);
     if (superClass)
         [header appendFormat: @": %s", class_getName(superClass)];
-    
-    RTBClass *class = [RTBClass classStubWithClass:aClass];
     
     // protocols
     NSArray *protocols = [class sortedProtocolsNames];
@@ -252,7 +326,16 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
         [header appendString:@"\n\n"];
     }
 
-    // properties
+    // class properties, eg. @property (class, readonly) NSUserDefaults *standardUserDefaults;
+    NSArray *classPropertiesDictionaries = [class sortedClassPropertiesDictionariesWithDisplayPropertiesDefaultValues:displayPropertiesDefaultValues];
+    for(NSDictionary *d in classPropertiesDictionaries) {
+        [header appendFormat:@"%@\n", d[@"description"]];
+    }
+    if([classPropertiesDictionaries count] > 0) {
+        [header appendString:@"\n"];
+    }
+    
+    // instance properties
     NSArray *propertiesDictionaries = [class sortedPropertiesDictionariesWithDisplayPropertiesDefaultValues:displayPropertiesDefaultValues];
     for(NSDictionary *d in propertiesDictionaries) {
         [header appendFormat:@"%@\n", d[@"description"]];
@@ -333,6 +416,20 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
 }
 
 + (NSString *)headerForProtocol:(RTBProtocol *)protocol {
+    BOOL displayPropertiesDefaultValues = [[NSUserDefaults standardUserDefaults] boolForKey:@"RTBDisplayPropertiesDefaultValues"];
+    return [self headerForProtocol:protocol displayPropertiesDefaultValues:displayPropertiesDefaultValues];
+}
+
++ (void)appendDescriptionsOfDictionaries:(NSArray *)dictionaries toHeader:(NSMutableString *)header {
+    for(NSDictionary *d in dictionaries) {
+        [header appendFormat:@"%@\n", d[@"description"]];
+    }
+    if([dictionaries count] > 0) {
+        [header appendString:@"\n"];
+    }
+}
+
++ (NSString *)headerForProtocol:(RTBProtocol *)protocol displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {
     
     NSMutableString *header = [NSMutableString string];
     
@@ -348,50 +445,33 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     }
     [header appendString:@"\n\n"];
     
+    NSArray *requiredClassProperties = [protocol sortedPropertiesRequired:YES instanceProperties:NO displayPropertiesDefaultValues:displayPropertiesDefaultValues];
+    NSArray *requiredInstanceProperties = [protocol sortedPropertiesRequired:YES instanceProperties:YES displayPropertiesDefaultValues:displayPropertiesDefaultValues];
+    NSArray *optionalClassProperties = [protocol sortedPropertiesRequired:NO instanceProperties:NO displayPropertiesDefaultValues:displayPropertiesDefaultValues];
+    NSArray *optionalInstanceProperties = [protocol sortedPropertiesRequired:NO instanceProperties:YES displayPropertiesDefaultValues:displayPropertiesDefaultValues];
+    
     NSArray *requiredClassMethods = [protocol sortedMethodsRequired:YES instanceMethods:NO];
     NSArray *requiredInstanceMethods = [protocol sortedMethodsRequired:YES instanceMethods:YES];
     NSArray *optionalClassMethods = [protocol sortedMethodsRequired:NO instanceMethods:NO];
     NSArray *optionalInstanceMethods = [protocol sortedMethodsRequired:NO instanceMethods:YES];
     
-    if([requiredClassMethods count] + [requiredInstanceMethods count] > 0) {
+    if([requiredClassProperties count] + [requiredInstanceProperties count] + [requiredClassMethods count] + [requiredInstanceMethods count] > 0) {
         [header appendString:@"@required\n\n"];
     }
     
-    // required class methods
-    for(NSDictionary *d in requiredClassMethods) {
-        [header appendFormat:@"%@\n", d[@"description"]];
-    }
-    if([requiredClassMethods count] > 0) {
-        [header appendString:@"\n"];
-    }
+    [self appendDescriptionsOfDictionaries:requiredClassProperties toHeader:header];
+    [self appendDescriptionsOfDictionaries:requiredInstanceProperties toHeader:header];
+    [self appendDescriptionsOfDictionaries:requiredClassMethods toHeader:header];
+    [self appendDescriptionsOfDictionaries:requiredInstanceMethods toHeader:header];
     
-    // required instance methods
-    for(NSDictionary *d in requiredInstanceMethods) {
-        [header appendFormat:@"%@\n", d[@"description"]];
-    }
-    if([requiredInstanceMethods count] > 0) {
-        [header appendString:@"\n"];
-    }
-    
-    if([optionalClassMethods count] + [optionalInstanceMethods count] > 0) {
+    if([optionalClassProperties count] + [optionalInstanceProperties count] + [optionalClassMethods count] + [optionalInstanceMethods count] > 0) {
         [header appendString:@"@optional\n\n"];
     }
     
-    // optional class methods
-    for(NSDictionary *d in optionalClassMethods) {
-        [header appendFormat:@"%@\n", d[@"description"]];
-    }
-    if([optionalClassMethods count] > 0) {
-        [header appendString:@"\n"];
-    }
-    
-    // optional instance methods
-    for(NSDictionary *d in optionalInstanceMethods) {
-        [header appendFormat:@"%@\n", d[@"description"]];
-    }
-    if([optionalInstanceMethods count] > 0) {
-        [header appendString:@"\n"];
-    }
+    [self appendDescriptionsOfDictionaries:optionalClassProperties toHeader:header];
+    [self appendDescriptionsOfDictionaries:optionalInstanceProperties toHeader:header];
+    [self appendDescriptionsOfDictionaries:optionalClassMethods toHeader:header];
+    [self appendDescriptionsOfDictionaries:optionalInstanceMethods toHeader:header];
     
     [header appendString:@"@end\n"];
     

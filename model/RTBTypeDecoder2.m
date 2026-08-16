@@ -290,6 +290,13 @@
     return [RTBTypeDecoder2 descriptionForTypeDictionary:d];
 }
 
++ (NSString *)ivarDeclarationForEncodedType:(NSString *)encodedType name:(NSString *)name {
+    // API parity with RTBTypeDecoder, modifiers are not supported yet by this decoder
+    if(name == nil) name = @"/* ? */";
+    if([encodedType length] == 0) return [NSString stringWithFormat:@"void /* ? */ %@", name];
+    return [NSString stringWithFormat:@"%@ %@", [self decodeType:encodedType flat:NO], name];
+}
+
 + (NSArray *)decodeTypes:(NSString *)encodedType flat:(BOOL)flat {
     RTBTypeDecoder2 *td = [[RTBTypeDecoder2 alloc] init];
     

@@ -18,6 +18,9 @@
 - (NSArray *)sortedAdoptedProtocolsNames;
 - (NSArray *)sortedMethodsRequired:(BOOL)required instanceMethods:(BOOL)instanceMethods;
 
+// dictionaries with "name" and "description" keys, eg. @property (class, readonly) NSString *name;
+- (NSArray *)sortedPropertiesRequired:(BOOL)required instanceProperties:(BOOL)instanceProperties displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues;
+
 // BrowserNode protocol
 
 - (NSArray *)children; // same as subclassesStubs

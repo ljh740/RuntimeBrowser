@@ -50,8 +50,14 @@ Boston, MA  02111-1307  USA
 @property (nonatomic, retain) NSMutableDictionary *namedStructs;
 @property (nonatomic) BOOL showCommentForBlocks;
 
+// flat:YES for method arguments and return types, eg. "struct CGRect { ... }*"
+// flat:NO for ivars, one struct member per line
 + (NSString *)decodeType:(NSString *)encodedType flat:(BOOL)flat;
 + (NSArray *)decodeTypes:(NSString *)encodedType flat:(BOOL)flat;
+
+// full ivar declaration without the trailing semicolon, eg. "int _foo[10]", "int (*_callback)()", "unsigned int _flags : 3"
+// encodedType may be nil (Swift-only types are not encoded), name may be nil (anonymous bit fields)
++ (NSString *)ivarDeclarationForEncodedType:(NSString *)encodedType name:(NSString *)name;
 
 // for tests
 - (NSDictionary *)flatCTypeDeclForEncType:(const char*)encType;

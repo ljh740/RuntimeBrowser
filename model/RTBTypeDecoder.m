@@ -34,6 +34,18 @@
  */
 
 /*
+ Type encodings handled here, see
+ https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtTypeEncodings.html
+ and clang's ASTContext::getObjCEncodingForTypeImpl().
+
+ Modern additions:
+ - block signatures in extended type encodings, eg. @?<v@?@"NSError"> -> void (^)(NSError *)
+ - protocol-qualified objects, eg. @"<NSCopying><NSCoding>" -> id <NSCopying, NSCoding>
+ - __int128 't' and unsigned __int128 'T'
+ - _Atomic 'A', _Complex 'j', long double 'D'
+ - types clang cannot encode (eg. vector types) are simply left out by the compiler,
+   which yields empty types such as [3], ^96 or {?="v"} -> "void" followed by a "?" comment
+
  PENDING:
  - typedefs for struct references
  - categories
@@ -97,9 +109,51 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
 
 @interface RTBTypeDecoder ()
 - (NSString *)parseStructOrUnionEndCh:(char)endCh depth:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter;
-- (NSDictionary *)typeEncParseObjectRefInStruct:(BOOL)inStruct spaceAfter:(BOOL)spaceAfter;
+- (NSDictionary *)typeEncParseObjectRefInStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName spaceAfter:(BOOL)spaceAfter;
 - (NSDictionary *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter;
+- (NSDictionary *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter;
 @end
+
+// the type used when the compiler did not encode a type at all (eg. vector types)
+static NSString *RTB_UNKNOWN_TYPE = @"void /* ? */";
+
+static BOOL rtb_isTypeTerminator(char c) {
+    // characters that can follow a type, ie. that cannot start one
+    return c == '\0' || isdigit(c) || c == '}' || c == ')' || c == ']' || c == '"' || c == '>';
+}
+
+// The name of a struct or union may be a C++ template name with nested angle brackets, parentheses,
+// spaces and commas, eg. {function<bool (unsigned long long)>={...}} or {vector<CGPoint, std::allocator<CGPoint>>=...}
+// Returns a pointer to the '=' that separates the name from the definition, or NULL if there is no definition (name only).
+static const char *rtb_structDefinitionStart(const char *p, char endCh) {
+    int angleDepth = 0;
+    for (; *p != '\0'; ++p) {
+        if (*p == '<') {
+            ++angleDepth;
+        } else if (*p == '>') {
+            if (angleDepth > 0) --angleDepth;
+        } else if (angleDepth == 0) {
+            if (*p == '=') return p;
+            if (*p == endCh || *p == '{' || *p == '(' || *p == '"') return NULL;
+        }
+    }
+    return NULL;
+}
+
+// Returns a pointer to the endCh closing a name-only struct or union, skipping the characters nested in angle brackets.
+static const char *rtb_structNameEnd(const char *p, char endCh) {
+    int angleDepth = 0;
+    for (; *p != '\0'; ++p) {
+        if (*p == '<') {
+            ++angleDepth;
+        } else if (*p == '>') {
+            if (angleDepth > 0) --angleDepth;
+        } else if (angleDepth == 0 && *p == endCh) {
+            return p;
+        }
+    }
+    return NULL;
+}
 
 @implementation RTBTypeDecoder
 
@@ -128,12 +182,21 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
 //    NSArray *cachedDecodedTypes = cacheDictionary[encodedTypes];
 //    if(cachedDecodedTypes) return cachedDecodedTypes;
     
+    NSMutableArray *ma = [NSMutableArray array];
+
+    const char *cString = [encodedTypes cStringUsingEncoding:NSUTF8StringEncoding];
+    if(cString == NULL) return ma; // nil or non UTF-8 encoding
+    
     RTBTypeDecoder *typeDecoder = [[self alloc] init];
     typeDecoder.showCommentForBlocks = [[NSUserDefaults standardUserDefaults] boolForKey:@"RTBAddCommentsForBlocks"];
     
-    [typeDecoder setIvT:[encodedTypes cStringUsingEncoding:NSUTF8StringEncoding]];
+    [typeDecoder setIvT:cString];
     
-    NSMutableArray *ma = [NSMutableArray array];
+    if(isdigit(*cString)) {
+        // A method type encoding starting with digits has an empty return type, eg. 16@0:8 for a simd return type.
+        // The other empty types cannot be recovered since their offsets get merged with the previous ones, eg. v32@0:816
+        [ma addObject:RTB_UNKNOWN_TYPE];
+    }
     
     while(YES) {
         @autoreleasepool {
@@ -152,7 +215,15 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
             d = [typeDecoder ivarCTypeDeclForEncType];
         }
 
-        [ma addObject:d[TYPE_LABEL]];
+        NSString *type = d[TYPE_LABEL];
+        NSString *modifier = d[MODIFIER_LABEL];
+            
+        if(flat && [modifier length] > 0) {
+            // there is no variable name to put in between, eg. "int (*" + ")()" -> "int (*)()"
+            type = [type stringByAppendingString:modifier];
+        }
+            
+        [ma addObject:type];
             
         }
     }
@@ -162,12 +233,38 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
     return ma;
 }
 
++ (NSString *)ivarDeclarationForEncodedType:(NSString *)encodedType name:(NSString *)name {
+    
+    // eg. "int _foo[10]", "unsigned int _flags : 3", "int (*_callback)()", "NSString * _name"
+    
+    if(name == nil) name = @"/* ? */"; // the compiler may generate ivar entries with a NULL name (eg. for anonymous bit fields)
+    
+    const char *cString = [encodedType cStringUsingEncoding:NSUTF8StringEncoding];
+    if(cString == NULL || strlen(cString) == 0) {
+        // no type encoding at all, this happens with Swift-only types
+        return [NSString stringWithFormat:@"%@ %@", RTB_UNKNOWN_TYPE, name];
+    }
+    
+    RTBTypeDecoder *typeDecoder = [[self alloc] init];
+    typeDecoder.showCommentForBlocks = [[NSUserDefaults standardUserDefaults] boolForKey:@"RTBAddCommentsForBlocks"];
+    
+    NSDictionary *d = [typeDecoder ivarCTypeDeclForEncType:cString];
+    NSString *type = d[TYPE_LABEL];
+    NSString *modifier = d[MODIFIER_LABEL];
+    
+    if(type == nil) return [NSString stringWithFormat:@"%@ %@", RTB_UNKNOWN_TYPE, name];
+    
+    NSString *separator = [type hasSuffix:@"(*"] ? @"" : @" "; // int (*_callback)()
+    
+    return [NSString stringWithFormat:@"%@%@%@%@", type, separator, name, modifier ? modifier : @""];
+}
+
 + (NSString *)decodeType:(NSString *)encodedType flat:(BOOL)flat {
     
     NSArray *types = [self decodeTypes:encodedType flat:flat];
     if([types count] == 0) {
-        NSLog(@"-- no types found in encodedType: %@", encodedType);
-        types = @[@"void"];
+        // nil, empty or digits-only encoding, eg. a return type the compiler could not encode
+        return RTB_UNKNOWN_TYPE;
     }
     NSAssert([types count] > 0, nil);
     NSString *decodedType = types[0];
@@ -223,6 +320,9 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
      #define _C_STRUCT_E '}'
      #define _C_VECTOR   '!'
      #define _C_CONST    'r'
+     
+     Not in the old headers but emitted by clang:
+     'D' long double, 't' __int128, 'T' unsigned __int128, 'A' _Atomic, 'j' _Complex
      */
     
     switch (fc) {
@@ -274,6 +374,12 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
         case 'D':
             rs = @"long double";
             break;
+        case 't' :
+            rs = @"__int128";
+            break;
+        case 'T' :
+            rs = @"unsigned __int128";
+            break;
         case 'B' :
             rs = @"bool";
             break;
@@ -283,6 +389,9 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
         case '*' : // STR
         case '%' : // _C_ATOM
             rs = @"char *";
+            break;
+        case ' ' : // clang encodes the builtin types it has no encoding for as a space, eg. _Float16
+            rs = RTB_UNKNOWN_TYPE;
             break;
         default :
             if (!currentWarning) {
@@ -300,7 +409,7 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
         switch (fc) {
             case '@' : case '#' : case ':' : case 'c' : case 'C' :
             case 's' : case 'S' : case 'i' : case 'I' : case 'l' : case 'L' : case 'q' : case 'Q' :
-            case 'f' : case 'd' : case 'v' : case 'B':
+            case 'f' : case 'd' : case 'D' : case 't' : case 'T' : case 'v' : case 'B': case ' ':
                 rs = [rs stringByAppendingString:@" "];
                 break;
         }
@@ -357,8 +466,10 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
     // so we make sure the name is double-quoted before
     // we use it as a class name (e.g., NSObject *) -- otherwise
     // it's the variable name.
+    // The class name is followed by the next field name, or by the end of the
+    // enclosing struct, union or array, eg. {?="a"@"NSString""b"i}, (?="a"@"NSString"), [2@"NSString"]
     const char *tmp = strchr(ivT+1, '"');
-    return ((tmp != NULL) && (*(tmp+1) == '"' || *(tmp+1) =='}'));
+    return ((tmp != NULL) && (*(tmp+1) == '"' || *(tmp+1) == '}' || *(tmp+1) == ')' || *(tmp+1) == ']'));
 }
 
 //OK
@@ -375,7 +486,7 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
 }
 
 //OK
-- (NSDictionary *)typeEncParseArrayOf:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
+- (NSDictionary *)typeEncParseArrayOf:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
     NSString *typeS = nil;
     NSString *modifierS = nil;
     int sizeModifier;    // size of this array
@@ -384,7 +495,13 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
         NSDictionary *innerTypeInfo;
         
         while (isdigit(*ivT)) ++ivT;      // move past the digits (size)
-        innerTypeInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:NO inLine:inLine inParam:inParam spaceAfter:spaceAfter]; // what TYPE of array
+        if (*ivT == ']') {
+            // the compiler did not encode the element type, eg. [3] for an array of vectors
+            typeS = spaceAfter ? [RTB_UNKNOWN_TYPE stringByAppendingString:@" "] : RTB_UNKNOWN_TYPE;
+            modifierS = [NSString stringWithFormat:@"[%d]", sizeModifier];
+            return [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+        }
+        innerTypeInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine inParam:inParam spaceAfter:spaceAfter]; // what TYPE of array
         typeS = [innerTypeInfo objectForKey:TYPE_LABEL];  // get the inner type
         // append a modifier that makes the type into an array of size 'sizeModifier'
         // NOTE: the array itself may be "modified" (e.g., nested arrays),  so append the inner modifier.
@@ -405,7 +522,7 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
 }
 
 //OK
-- (NSDictionary *)typeEncParsePointerTo:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
+- (NSDictionary *)typeEncParsePointerTo:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
     NSString *typeS = nil;
     NSString *modifierS = nil;
     
@@ -414,8 +531,14 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
         typeS = @"int (*";
         modifierS = @")()";
         showFunctionSignatureNote = YES;
+    } else if (rtb_isTypeTerminator(*ivT)) {
+        // the compiler did not encode the pointee type, eg. ^96 for a pointer to a vector type followed by its offset
+        typeS = [RTB_UNKNOWN_TYPE stringByAppendingString:@" *"];
+        modifierS = @"";
     } else {
-        NSDictionary *innerTypeInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:NO inLine:inLine inParam:inParam spaceAfter:spaceAfter]; // Get the type
+        // Note that clang never encodes class names after a pointer, eg. NSError ** is ^@ and not ^@"NSError",
+        // so a quoted string here is always the name of the next field of the enclosing struct.
+        NSDictionary *innerTypeInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:NO inLine:inLine inParam:inParam spaceAfter:spaceAfter]; // Get the type
         
         modifierS = [innerTypeInfo objectForKey:MODIFIER_LABEL];  // and it's modifier
         typeS = [[innerTypeInfo objectForKey:TYPE_LABEL] stringByAppendingString:@"*"];  // make type a pointer
@@ -486,31 +609,34 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
     
     NSString *typeS = @"";
     NSString *modifierS = @"";
-    char *eqPos = strchr(ivT, '=');
-    char *innerSPos = strchr(ivT, '{');
-    char *innerUPos = strchr(ivT, '(');
+    const char *eqPos = rtb_structDefinitionStart(ivT, endCh);
     
     ++(*depth);
     // Check for a definition (after an '=') within this (possibly nested) struct/union (e.g., before endCh).
     // The '=' must come before the end of this struct/union and before the beginning of another.
-    if ( eqPos != NULL && eqPos < strchr(ivT, endCh) &&
-        (innerUPos==NULL || eqPos < innerUPos) && (innerSPos==NULL || eqPos < innerSPos) ) {
+    if ( eqPos != NULL ) {
         // struct or union definition provided (parsed by parseStructOrUnion()).
         typeS = [self parseStructOrUnionEndCh:endCh depth:depth sPart:sPart inLine:inLine inParam:inParam spaceAfter:spaceAfter];
     } else {   // named struct or union (name only)
-        const char *tmp = strchr(ivT, endCh);
+        const char *tmp = rtb_structNameEnd(ivT, endCh);
         if (tmp != NULL) {
             
             if (*ivT != '?') {
                 
+                // A union without '=' may be a name only, eg. (Foo) like a pointee struct {Foo}, or old-style unnamed types
+                BOOL isNameOnly = YES;
+                for (const char *c = ivT; c < tmp; ++c) {
+                    if (!(isalnum(*c) || *c == '_' || *c == '<' || *c == '>' || *c == ':' || *c == ',' || *c == ' ' || *c == '*' || *c == '&' || *c == '(' || *c == ')' || *c == '[' || *c == ']')) { isNameOnly = NO; break; }
+                }
+                
                 // need parse union's differently
-                if (endCh == ')') {  // Learned this later... no longer a generic Struct/Unin parser. Alas.
+                if (endCh == ')' && !isNameOnly) {  // Learned this later... no longer a generic Struct/Unin parser. Alas.
                     typeS =  [self parseUnnamedStructOrUnionVarEndCh:endCh depth:depth sPart:sPart inLine:inLine inParam:inParam];
                     // PENDING curly braces -- add 'em inside func.
                     typeS = [NSString stringWithFormat:@"{ %@} ", typeS];
                 } else {
-                    NSString *s = [NSString stringWithCString:ivT encoding:NSUTF8StringEncoding];
-                    typeS = [s substringToIndex:tmp-ivT];
+                    typeS = [[NSString alloc] initWithBytes:ivT length:tmp-ivT encoding:NSUTF8StringEncoding];
+                    if (typeS == nil) typeS = @"";
                     if (spaceAfter)
                         typeS = [typeS stringByAppendingString:@" {} "];
                     else
@@ -547,11 +673,11 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
     NSString *fmt2 = (spaceAfter ? @" { %@%@} " : @" { %@%@}");
     int i;
     
-    const char *tmp = strchr(ivT, '=');
+    const char *tmp = rtb_structDefinitionStart(ivT, endCh);
+    NSAssert(tmp != NULL, @"struct or union definition expected"); // the caller checked
     
     if (*ivT != '?') {
-        NSString *s = [NSString stringWithCString:ivT encoding:NSUTF8StringEncoding];
-        name = [s substringToIndex:tmp-ivT]; // get the name
+        name = [[NSString alloc] initWithBytes:ivT length:tmp-ivT encoding:NSUTF8StringEncoding]; // get the name
     }
     
     ivT = tmp + 1;
@@ -562,13 +688,23 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
             ++ivT;
             tmp = strchr(ivT, '"');
             
-            NSString *s = [NSString stringWithCString:ivT encoding:NSUTF8StringEncoding];
-            partName = [s substringToIndex:tmp-ivT]; // get the name
+            if (tmp == NULL) { // no closing quote, give up on this struct and let the caller consume endCh
+                const char *end = strchr(ivT, endCh);
+                ivT = end ? end : ivT + strlen(ivT);
+                break;
+            }
+            
+            partName = [[NSString alloc] initWithBytes:ivT length:tmp-ivT encoding:NSUTF8StringEncoding]; // get the name
             
             ivT = tmp + 1;
             
-            //structInfo = cTypeDeclForEncType(depth, sPart, YES, inLine, inParam, YES);
-            structInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:YES inLine:inLine inParam:inParam spaceAfter:YES];
+            if (*ivT == '"' || *ivT == endCh) {
+                // the compiler did not encode the type of this field, eg. {?="f"f"v"} where v is a vector
+                structInfo = [NSDictionary dictionaryWithObjectsAndKeys:[RTB_UNKNOWN_TYPE stringByAppendingString:@" "], TYPE_LABEL, @"", MODIFIER_LABEL, nil];
+            } else {
+                //structInfo = cTypeDeclForEncType(depth, sPart, YES, inLine, inParam, YES);
+                structInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:YES inLine:inLine inParam:inParam spaceAfter:YES];
+            }
             
             if (!inLine) {
                 depthS = [NSMutableString string];
@@ -605,6 +741,11 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
 // depth -- how deeply nested a struct or union is
 // sPart -- which part of an outer struct we're in.
 - (NSDictionary *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
+    return [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:YES inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+}
+
+// mayHaveClassName -- NO when a quoted string cannot be a class name, ie. after a pointer
+- (NSDictionary *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
     /*"
      This is the entry point for parsing encoded ivar types.
      "*/
@@ -620,11 +761,11 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
         case '!' :   // "weak" pointer specifier (for new Garbage collection...).
             ++ivT; // '!' indicates a runtime (non-declarative) feature, skip it and continue
             //result = cTypeDeclForEncType(depth, sPart, inStruct, inLine, inParam, spaceAfter);
-            result = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+            result = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine inParam:inParam spaceAfter:spaceAfter];
             break;
         case '^' :   // Pointer to another type.
             ++ivT;
-            result = [self typeEncParsePointerTo:depth sPart:sPart inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+            result = [self typeEncParsePointerTo:depth sPart:sPart inStruct:inStruct inLine:inLine inParam:inParam spaceAfter:spaceAfter];
             break;
         case 'b' :   // bit field
             ++ivT;
@@ -632,11 +773,11 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
             break;
         case '@' :   // id or id? (block) or named object reference
             ++ivT;
-            result = [self typeEncParseObjectRefInStruct:inStruct spaceAfter:spaceAfter];
+            result = [self typeEncParseObjectRefInStruct:inStruct mayHaveClassName:mayHaveClassName spaceAfter:spaceAfter];
             break;
         case '[' :   // array
             ++ivT;
-            result = [self typeEncParseArrayOf:depth sPart:sPart inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+            result = [self typeEncParseArrayOf:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine inParam:inParam spaceAfter:spaceAfter];
             
             closingChar = ']';  parsedTypeName = @"array ";
             break;
@@ -665,8 +806,12 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
                 type = [self typeForFilerCode:*ivT spaceAfter:spaceAfter];
                 modifier = @"";
                 ++ivT;
+            } else if (rtb_isTypeTerminator(*ivT)) {
+                // a type specifier with no type after it, eg. r16 for a const vector type
+                type = [typeSpec stringByAppendingString:(spaceAfter ? [RTB_UNKNOWN_TYPE stringByAppendingString:@" "] : RTB_UNKNOWN_TYPE)];
+                modifier = @"";
             } else {
-                result = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+                result = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine inParam:inParam spaceAfter:spaceAfter];
                 type = [typeSpec stringByAppendingString:[result objectForKey:TYPE_LABEL]];
                 modifier =[result objectForKey:MODIFIER_LABEL];
             }
@@ -688,21 +833,67 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
 }
 
 //OK
-- (NSDictionary *)typeEncParseObjectRefInStruct:(BOOL)inStruct spaceAfter:(BOOL)spaceAfter {
++ (NSString *)objectTypeForQuotedName:(NSString *)name {
+    /*"
+     The quoted name after '@' is a class name, optionally followed by protocols, or protocols only:
+       "NSString"                     -> NSString *
+       "NSObject<NSCopying><NSCoding>" -> NSObject<NSCopying, NSCoding> *
+       "<NSCopying><NSCoding>"         -> id <NSCopying, NSCoding>
+     "*/
+    NSString *s = [name stringByReplacingOccurrencesOfString:@"><" withString:@", "];
+    if ([s hasPrefix:@"<"]) {
+        return [@"id " stringByAppendingString:s];
+    }
+    return [s stringByAppendingString:@" *"];  // And, of course, id is a pointer to a class reference.
+}
+
+- (NSString *)parseBlockSignature {
+    /*"
+     Extended type encodings, as found in protocol method descriptions, contain the block signature
+     between angle brackets, eg. @?<v@?@"NSData"@"NSError"> for void (^)(NSData *, NSError *).
+     The first type is the return type, the second one is the block itself, then come the arguments.
+     ivT points at the opening '<'. Returns nil and leaves ivT unchanged if the signature is not well-formed.
+     "*/
+    NSAssert(*ivT == '<', @"");
+    
+    const char *p = ivT + 1;
+    int angleDepth = 1;
+    while (*p != '\0') {
+        if (*p == '<') ++angleDepth;
+        else if (*p == '>' && --angleDepth == 0) break;
+        ++p;
+    }
+    if (*p != '>') return nil; // no matching '>'
+    
+    NSString *signature = [[NSString alloc] initWithBytes:ivT+1 length:p-(ivT+1) encoding:NSUTF8StringEncoding];
+    if (signature == nil) return nil;
+    
+    ivT = p + 1; // consume the signature, including '>'
+    
+    NSArray *types = [[self class] decodeTypes:signature flat:YES]; // block arguments are always flat, even in ivars
+    NSString *returnType = [types count] > 0 ? types[0] : @"void";
+    NSArray *argumentTypes = [types count] > 2 ? [types subarrayWithRange:NSMakeRange(2, [types count]-2)] : nil;
+    NSString *arguments = [argumentTypes count] > 0 ? [argumentTypes componentsJoinedByString:@", "] : @"void";
+    
+    return [NSString stringWithFormat:@"%@ (^)(%@)", returnType, arguments];
+}
+
+//OK
+- (NSDictionary *)typeEncParseObjectRefInStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName spaceAfter:(BOOL)spaceAfter {
     NSString *typeS = nil;
     NSString *modifierS = @"";
     BOOL isUnnamedType = YES;
     const char *tmp;
     
-    if ((*ivT == '"') && (!inStruct || [self hasClassName])) {  // '@' followed by '"' implies the class name is supplied.
+    if (mayHaveClassName && (*ivT == '"') && (!inStruct || [self hasClassName])) {  // '@' followed by '"' implies the class name is supplied.
         ++ivT;  // skip the quote
         tmp = strchr(ivT, '"');  // go to the end of the quoted class name
         if (tmp != NULL) {       // (should never happen) no end quote -- default to type 'id' and hope this is parsed elsewhere
             isUnnamedType = NO;    // NO --> this is a named class (type)
-            NSString *s = [NSString stringWithCString:ivT encoding:NSUTF8StringEncoding];
-            typeS = [s substringToIndex:tmp-ivT]; // get the name
+            NSString *name = [[NSString alloc] initWithBytes:ivT length:tmp-ivT encoding:NSUTF8StringEncoding]; // get the name
             //            [refdClasses addObject:typeS];  // make sure it gets added to the @class ... declaration.
-            typeS = [typeS stringByAppendingString:@" *"];  // And, of course, id is a pointer to a class reference.
+            typeS = [[self class] objectTypeForQuotedName:name];
+            if (spaceAfter && [typeS hasSuffix:@"*"] == NO) typeS = [typeS stringByAppendingString:@" "]; // id <NSCopying>
             ivT = tmp + 1;       // moved to the end of the name and the closing quote
         }
     }
@@ -710,7 +901,16 @@ NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
         
         BOOL isBlock = *ivT == '?';
         ivT += isBlock; // only increament ivT if the next character is actually being consumed
-        if(isBlock && [[NSUserDefaults standardUserDefaults] boolForKey:@"RTBAddCommentsForBlocks"]) {
+        
+        if(isBlock && *ivT == '<') {
+            NSString *blockType = [self parseBlockSignature];
+            if(blockType) {
+                typeS = (spaceAfter ? [blockType stringByAppendingString:@" "] : blockType);
+                return [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+            }
+        }
+        
+        if(isBlock && _showCommentForBlocks) {
             typeS = (spaceAfter ? @"id /* block */ " : @"id /* block */");
         } else {
             typeS = (spaceAfter ? @"id " : @"id");

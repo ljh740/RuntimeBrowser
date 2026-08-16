@@ -22,7 +22,7 @@
 @property (nonatomic) BOOL isClassMethod;
 
 @property (nonatomic, strong) NSNumber *cachedHasArguments;
-@property (nonatomic, strong) NSArray *cachedArgumentsTypesDecoded;
+@property (nonatomic, strong) NSArray *cachedTypesDecoded; // return type first, then self, _cmd and the arguments
 @property (nonatomic, strong) NSDictionary *cachedDyldInfoDictionary;
 @end
 
@@ -61,12 +61,12 @@
 //    printf("-- fbase %p\n", info.dli_fbase);
 //    printf("-- saddr %p\n", info.dli_saddr);
     
-    NSString *filePath = [NSString stringWithFormat:@"%s", info.dli_fname];
+    NSString *filePath = info.dli_fname ? [NSString stringWithFormat:@"%s", info.dli_fname] : @"";
     
 #if TARGET_OS_IPHONE && !TARGET_IPHONE_SIMULATOR
     NSString *symbolName = @""; // info.dli_sname is unreliable on the device, most of time "<redacted>"
 #else
-    NSString *symbolName = [NSString stringWithFormat:@"%s", info.dli_sname];
+    NSString *symbolName = info.dli_sname ? [NSString stringWithFormat:@"%s", info.dli_sname] : @"";
 #endif
     
     NSString *categoryName = nil;
@@ -113,59 +113,49 @@
 }
 
 - (NSString *)returnTypeEncoded {
-    static int BUFFER_SIZE = 255;
+    // method_getReturnType() would truncate long encodings such as C++ templates
+    char *returnTypeCString = method_copyReturnType(_method);
+    if(returnTypeCString == NULL) return @"";
+    NSString *s = [NSString stringWithCString:returnTypeCString encoding:NSUTF8StringEncoding];
+    free(returnTypeCString);
+    return s ? s : @"";
+}
+
+- (NSArray *)typesDecoded {
     
-    char* buffer = malloc(BUFFER_SIZE * sizeof(char));
-    method_getReturnType(_method, buffer, BUFFER_SIZE);
-    NSString *s = [NSString stringWithCString:buffer encoding:NSUTF8StringEncoding];
-    free(buffer);
-    return s;
+    if(_cachedTypesDecoded == nil) {
+        /*
+         We decode the whole type encoding ourselves instead of relying on method_getNumberOfArguments(),
+         method_copyReturnType() and method_copyArgumentType(). The runtime functions do not understand
+         the extended type encodings that Swift and recent compilers store in method lists, and they return
+         garbage for the class names and block signatures, eg. v24@0:8@?<v@?@"NSError">16
+         */
+        const char *typeEncoding = method_getTypeEncoding(_method);
+        NSString *s = typeEncoding ? [NSString stringWithCString:typeEncoding encoding:NSUTF8StringEncoding] : nil;
+        
+        NSArray *types = [RTBTypeDecoder decodeTypes:(s ? s : @"") flat:YES];
+        if([types count] == 0) {
+            types = @[[RTBTypeDecoder decodeType:@"" flat:YES]]; // no type encoding at all
+        }
+        
+        self.cachedTypesDecoded = types;
+    }
+    
+    return _cachedTypesDecoded;
 }
 
 - (NSString *)returnTypeDecoded {
-    NSString *s = [self returnTypeEncoded];
-    return [RTBTypeDecoder decodeType:s flat:YES];
+    return [[self typesDecoded] firstObject];
 }
 
 - (NSArray *)argumentsTypesDecoded {
-    
-    if(_cachedArgumentsTypesDecoded == nil) {
-        /*
-        NSString *methodName = [NSString stringWithCString:method_getName(_method) encoding:NSUTF8StringEncoding];
-        NSLog(@"-- methodName: %@", methodName);
-        
-        if([self.filePath isEqualToString:@"/System/Library/PrivateFrameworks/CoreKnowledge.framework/CoreKnowledge"]) {
-            NSArray *blacklistCoreKnowledgeSelectors = @[@"identifier", @"sql", @"writeBatch"];
-            if([blacklistCoreKnowledgeSelectors containsObject:methodName]) {
-                return _cachedArgumentsTypesDecoded;
-            }
-        }
-        */
-        unsigned int numberOfArguments = method_getNumberOfArguments(_method);
-            
-        NSMutableArray *ma = [NSMutableArray array];
-        
-        for(unsigned int i = 0; i < numberOfArguments; i++) {
-            char *argType = method_copyArgumentType(_method, i);
-            NSAssert(argType != NULL, @"");
-            NSString *encodedType = [NSString stringWithCString:argType encoding:NSASCIIStringEncoding];
-            free(argType);
-            
-            NSString *decodedType = [RTBTypeDecoder decodeType:encodedType flat:YES];
-            [ma addObject:decodedType];
-        }
-        self.cachedArgumentsTypesDecoded = ma;
-    }
-    
-    return _cachedArgumentsTypesDecoded;
+    // self and _cmd come first
+    NSArray *types = [self typesDecoded];
+    return [types subarrayWithRange:NSMakeRange(1, [types count] - 1)];
 }
 
 - (NSString *)headerDescriptionWithNewlineAfterArgs:(BOOL)newlineAfterArgs {
-    char* returnTypeCString = method_copyReturnType(_method);
-    if(returnTypeCString == NULL) return @"";
-    NSString *returnTypeEncoded = [NSString stringWithCString:returnTypeCString encoding:NSASCIIStringEncoding];
-    free(returnTypeCString);
-    NSString *returnType = [RTBTypeDecoder decodeType:returnTypeEncoded flat:YES];
+    NSString *returnType = [self returnTypeDecoded];
     NSString *methodName = NSStringFromSelector(method_getName(_method));
     
     NSArray *argumentTypes = [self argumentsTypesDecoded];

@@ -51,6 +51,11 @@ The purpose of ClassStub is to have a way of accessing ALL of a class's currentl
 - (NSString *)classObjectName;
 - (NSString *)imagePath;
 
+// Swift classes are registered in the Objective-C runtime with mangled names,
+// eg. _TtC10Foundation13__NSSwiftData or Module.ClassName
+- (BOOL)isSwiftClass;
+- (NSString *)swiftDemangledName; // nil if not a Swift class or if the name cannot be demangled
+
 - (NSSet *)iVarNames;
 - (NSSet *)iVarDecodedTypes;
 - (NSSet *)methodsNamePartsLowercase;
@@ -61,6 +66,7 @@ The purpose of ClassStub is to have a way of accessing ALL of a class's currentl
 - (NSArray *)sortedMethodsIsClassMethod:(BOOL)isClassMethod;
 - (NSArray *)sortedMethodsGroupsOfGroupsByImageAndThenCategory;
 - (NSArray *)sortedPropertiesDictionariesWithDisplayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues;
+- (NSArray *)sortedClassPropertiesDictionariesWithDisplayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues; // @property (class, ...)
 
 - (BOOL)containsSearchString:(NSString *)searchString;
 

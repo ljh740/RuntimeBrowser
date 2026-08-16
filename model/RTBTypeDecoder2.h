@@ -49,6 +49,7 @@
 
 + (NSArray *)decodeTypes:(NSString *)encodedType flat:(BOOL)flat;
 + (NSString *)decodeType:(NSString *)encodedType flat:(BOOL)flat;
++ (NSString *)ivarDeclarationForEncodedType:(NSString *)encodedType name:(NSString *)name; // same API as RTBTypeDecoder
 
 - (NSDictionary *)decodeType:(NSString *)encodedType;
 + (NSInteger)indexOfClosingCharForString:(NSString *)s openingChar:(unichar)open closingChar:(unichar)close;

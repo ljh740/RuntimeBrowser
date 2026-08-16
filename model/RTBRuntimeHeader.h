@@ -22,13 +22,27 @@
 
 + (NSString *)decodedTypeForEncodedString:(NSString *)s;
 
+// instance property
 + (NSString *)descriptionForPropertyWithName:(NSString *)name
                                   attributes:(NSString *)attributes
               displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues;
 
+// class properties are read from the metaclass, eg. @property (class, readonly) NSUserDefaults *standardUserDefaults;
++ (NSString *)descriptionForPropertyWithName:(NSString *)name
+                                  attributes:(NSString *)attributes
+                             isClassProperty:(BOOL)isClassProperty
+              displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues;
+
+// the attributes string split on commas, but not on the commas found inside C++ template names in type encodings, eg. T{pair<int, int>=ii},V_pair
++ (NSArray *)componentsOfPropertyAttributes:(NSString *)attributes;
+
+// the '?' attribute marks the properties declared in an @optional section of a protocol
++ (BOOL)isOptionalPropertyWithAttributes:(NSString *)attributes;
+
 + (NSString *)headerForClass:(Class)aClass displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues;
 
-+ (NSString *)headerForProtocol:(RTBProtocol *)protocol;
++ (NSString *)headerForProtocol:(RTBProtocol *)protocol; // reads RTBDisplayPropertiesDefaultValues in user defaults
++ (NSString *)headerForProtocol:(RTBProtocol *)protocol displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues;
 
 + (NSString *)descriptionForMethodName:(NSString *)methodName
                             returnType:(NSString *)returnType

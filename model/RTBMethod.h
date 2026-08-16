@@ -19,7 +19,7 @@
 
 - (NSString *)returnTypeEncoded;
 - (NSString *)returnTypeDecoded;
-- (NSArray *)argumentsTypesDecoded;
+- (NSArray *)argumentsTypesDecoded; // includes the implicit self and _cmd arguments, eg. id, SEL, ...
 - (NSString *)selectorString;
 - (SEL)selector;
 - (BOOL)hasArguments;

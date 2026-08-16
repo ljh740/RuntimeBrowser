@@ -204,7 +204,11 @@
     for (unsigned int i = 0; i < ivarListCount; ++i ) {
         Ivar ivar = ivarList[i];
         
-        NSString *encodedType = [NSString stringWithFormat:@"%s", ivar_getTypeEncoding(ivar)];
+        const char *encodedTypeC = ivar_getTypeEncoding(ivar);
+        if(encodedTypeC == NULL) continue; // Swift-only types are not encoded
+        
+        NSString *encodedType = [NSString stringWithCString:encodedTypeC encoding:NSUTF8StringEncoding];
+        if(encodedType == nil) continue;
         
         if([encodedTypesSet containsObject:encodedType]) continue;
         
@@ -340,15 +344,20 @@
     for (unsigned int i = 0; i < ivarListCount; ++i ) {
         Ivar ivar = ivarList[i];
         
-        NSString *encodedType = [NSString stringWithFormat:@"%s", ivar_getTypeEncoding(ivar)];
-        NSString *decodedType = [RTBTypeDecoder decodeType:encodedType flat:NO];
+        // Swift-only types are not encoded, the type encoding is NULL
+        const char *encodedTypeC = ivar_getTypeEncoding(ivar);
+        NSString *encodedType = encodedTypeC ? [NSString stringWithCString:encodedTypeC encoding:NSUTF8StringEncoding] : nil;
         
-        // TODO: compiler may generate ivar entries with NULL ivar_name (e.g. for anonymous bit fields).
-        NSString *name = [NSString stringWithFormat:@"%s", ivar_getName(ivar)];
+        // the compiler may generate ivar entries with NULL ivar_name (e.g. for anonymous bit fields).
+        const char *nameC = ivar_getName(ivar);
+        NSString *name = nameC ? [NSString stringWithCString:nameC encoding:NSUTF8StringEncoding] : nil;
         
-        NSString *s = [NSString stringWithFormat:@"    %@ %@;", decodedType, name];
+        // full declaration, including the modifiers, eg. int _foo[10], int (*_callback)(), unsigned int _flags : 3
+        NSString *declaration = [RTBTypeDecoder ivarDeclarationForEncodedType:encodedType name:name];
         
-        [ivarDictionaries addObject:@{@"name":name, @"description":s}];
+        NSString *s = [NSString stringWithFormat:@"    %@;", declaration];
+        
+        [ivarDictionaries addObject:@{@"name":(name ? name : @""), @"description":s}];
         
     }
     free(ivarList);
@@ -376,8 +385,8 @@
     //    printf("-- fbase %p\n", info.dli_fbase);
     //    printf("-- saddr %p\n", info.dli_saddr);
     
-    NSString *filePath = [NSString stringWithFormat:@"%s", info.dli_fname];
-    NSString *symbolName = [NSString stringWithFormat:@"%s", info.dli_sname];
+    NSString *filePath = info.dli_fname ? [NSString stringWithFormat:@"%s", info.dli_fname] : nil;
+    NSString *symbolName = info.dli_sname ? [NSString stringWithFormat:@"%s", info.dli_sname] : nil;
     
     NSUInteger startIndex = [symbolName rangeOfString:@"("].location;
     NSUInteger stopIndex = [symbolName rangeOfString:@")"].location;
@@ -437,7 +446,8 @@
     
     NSMutableDictionary *groupsByImage = [NSMutableDictionary dictionary];
 
-    NSString *runtimeBrowserPath = [NSString stringWithCString:class_getImageName([self class]) encoding:NSUTF8StringEncoding];
+    const char *runtimeBrowserPathC = class_getImageName([self class]);
+    NSString *runtimeBrowserPath = runtimeBrowserPathC ? [NSString stringWithCString:runtimeBrowserPathC encoding:NSUTF8StringEncoding] : nil;
 
     for(NSNumber *n in @[@(1), @(0)]) { // for class and metaClass
         
@@ -468,6 +478,7 @@
                 if([filePath isEqualToString:runtimeBrowserPath]) continue;
             };
             
+            if(filePath == nil) filePath = @""; // dladdr() may fail, eg. for some Swift classes
             if(categoryName == nil) categoryName = @"";
             
             if(groupsByImage[filePath] == nil) {
@@ -489,8 +500,11 @@
     NSMutableArray *sortedImages = [[[groupsByImage allKeys] sortedArrayUsingSelector:@selector(compare:)] mutableCopy];
     
     // start with methods from the same image as the class
-    [sortedImages removeObject:classFilePath];
-    [sortedImages insertObject:classFilePath atIndex:0];
+    // (the class image is listed even without methods, so that the header can tell when methods come from other images)
+    if(classFilePath) {
+        [sortedImages removeObject:classFilePath];
+        [sortedImages insertObject:classFilePath atIndex:0];
+    }
     
     for(NSString *filePath in sortedImages) {
         NSDictionary *groupsByImageForCurrentFilePath = groupsByImage[filePath];
@@ -511,23 +525,26 @@
     return groupsOfGroupsByImageAndThenCategory;
 }
 
-- (NSArray *)sortedPropertiesDictionariesWithDisplayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {
-    
-    Class aClass = NSClassFromString(classObjectName);
-    NSAssert(aClass, @"no class named %@", classObjectName);
+- (NSArray *)sortedPropertiesDictionariesForClass:(Class)inspectedClass isClassProperties:(BOOL)isClassProperties displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {
     
     NSMutableSet *ms = [NSMutableSet set];
     
     unsigned int propertiesCount = 0;
-    objc_property_t *propertyList = class_copyPropertyList(aClass, &propertiesCount);
+    objc_property_t *propertyList = class_copyPropertyList(inspectedClass, &propertiesCount);
     
     for (unsigned int i = 0; i < propertiesCount; i++) {
         objc_property_t property = propertyList[i];
         
-        NSString *name = [NSString stringWithCString:property_getName(property) encoding:NSASCIIStringEncoding];
-        NSString *attributes = [NSString stringWithCString:property_getAttributes(property) encoding:NSASCIIStringEncoding];
+        const char *nameC = property_getName(property);
+        const char *attributesC = property_getAttributes(property);
         
-        NSString *description = [RTBRuntimeHeader descriptionForPropertyWithName:name attributes:attributes displayPropertiesDefaultValues:displayPropertiesDefaultValues];
+        NSString *name = nameC ? [NSString stringWithCString:nameC encoding:NSUTF8StringEncoding] : @"";
+        NSString *attributes = attributesC ? [NSString stringWithCString:attributesC encoding:NSUTF8StringEncoding] : @"";
+        
+        NSString *description = [RTBRuntimeHeader descriptionForPropertyWithName:name
+                                                                      attributes:attributes
+                                                                 isClassProperty:isClassProperties
+                                                  displayPropertiesDefaultValues:displayPropertiesDefaultValues];
         
         NSDictionary *d = @{@"name":name, @"description":description};
         
@@ -543,6 +560,61 @@
     }];
     
     return ma;
+}
+
+- (NSArray *)sortedPropertiesDictionariesWithDisplayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {
+    
+    Class aClass = NSClassFromString(classObjectName);
+    NSAssert(aClass, @"no class named %@", classObjectName);
+    
+    return [self sortedPropertiesDictionariesForClass:aClass isClassProperties:NO displayPropertiesDefaultValues:displayPropertiesDefaultValues];
+}
+
+- (NSArray *)sortedClassPropertiesDictionariesWithDisplayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {
+    
+    Class aClass = NSClassFromString(classObjectName);
+    NSAssert(aClass, @"no class named %@", classObjectName);
+    
+    // class properties are stored in the metaclass
+    Class metaClass = object_getClass(aClass);
+    if(metaClass == nil) return @[];
+    
+    return [self sortedPropertiesDictionariesForClass:metaClass isClassProperties:YES displayPropertiesDefaultValues:displayPropertiesDefaultValues];
+}
+
+#pragma mark Swift
+
+- (BOOL)isSwiftClass {
+    // Swift classes are registered with mangled names such as _TtC10Foundation13__NSSwiftData,
+    // or Module.ClassName since Swift 4. Objective-C class names cannot contain dots.
+    return [classObjectName hasPrefix:@"_Tt"] || [classObjectName rangeOfString:@"."].location != NSNotFound;
+}
+
+- (NSString *)swiftDemangledName {
+    
+    if([self isSwiftClass] == NO) return nil;
+    
+    // swift_demangle() lives in libswiftCore.dylib, which we don't link against
+    static char *(*rtb_swift_demangle)(const char *mangledName, size_t mangledNameLength, char *outputBuffer, size_t *outputBufferSize, uint32_t flags) = NULL;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        rtb_swift_demangle = dlsym(RTLD_DEFAULT, "swift_demangle");
+        if(rtb_swift_demangle == NULL) {
+            void *handle = dlopen("/usr/lib/swift/libswiftCore.dylib", RTLD_LAZY);
+            if(handle) rtb_swift_demangle = dlsym(handle, "swift_demangle");
+        }
+    });
+    
+    if(rtb_swift_demangle == NULL) return nil;
+    
+    const char *mangledName = [classObjectName UTF8String];
+    char *demangledName = rtb_swift_demangle(mangledName, strlen(mangledName), NULL, NULL, 0);
+    if(demangledName == NULL) return nil; // not a mangled name, eg. Module.ClassName
+    
+    NSString *s = [NSString stringWithCString:demangledName encoding:NSUTF8StringEncoding];
+    free(demangledName);
+    
+    return s;
 }
 
 #pragma mark BrowserNode protocol
