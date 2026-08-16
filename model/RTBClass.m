@@ -59,6 +59,9 @@
 @property (nonatomic) BOOL shouldSortSubclasses;
 @property (nonatomic) BOOL subclassesAreSorted;
 @property (nonatomic, retain) NSSet *cachedMethodsNamePartsLowercase;
+@property (nonatomic, retain) NSString *cachedSwiftDemangledName;
+@property (nonatomic, retain) NSDictionary *cachedSwiftFieldsByName;
+@property (nonatomic, retain) NSArray *cachedSortedSwiftMembers;
 - (RTBClass *)initWithClass:(Class)klass;
 @end
 
@@ -198,6 +201,10 @@
     NSMutableSet *encodedTypesSet = [NSMutableSet set]; // use this to avoid decoding types that were already decoded
     NSMutableSet *decodedTypesSet = [NSMutableSet set];
     
+    for(NSDictionary *swiftField in [[self swiftFieldsByName] allValues]) {
+        [decodedTypesSet addObject:swiftField[@"type"]];
+    }
+    
     unsigned int ivarListCount;
     Ivar *ivarList = class_copyIvarList(class, &ivarListCount);
     
@@ -205,7 +212,7 @@
         Ivar ivar = ivarList[i];
         
         const char *encodedTypeC = ivar_getTypeEncoding(ivar);
-        if(encodedTypeC == NULL) continue; // Swift-only types are not encoded
+        if(encodedTypeC == NULL || encodedTypeC[0] == '\0') continue; // Swift-only types are not encoded
         
         NSString *encodedType = [NSString stringWithCString:encodedTypeC encoding:NSUTF8StringEncoding];
         if(encodedType == nil) continue;
@@ -293,7 +300,7 @@
 }
 
 - (NSComparisonResult)compare:(RTBClass *)otherCS {
-    return [classObjectName compare:[otherCS classObjectName]];
+    return [[self displayName] compare:[otherCS displayName]];
 }
 
 - (BOOL)containsSearchString:(NSString *)searchString {
@@ -301,6 +308,10 @@
     NSString *ss = [searchString lowercaseString];
     
     if([[classObjectName lowercaseString] rangeOfString:ss].location != NSNotFound) {
+        return YES;
+    }
+    
+    if([[[self swiftDemangledName] lowercaseString] rangeOfString:ss].location != NSNotFound) {
         return YES;
     }
     
@@ -354,8 +365,19 @@
         
         // full declaration, including the modifiers, eg. int _foo[10], int (*_callback)(), unsigned int _flags : 3
         NSString *declaration = [RTBTypeDecoder ivarDeclarationForEncodedType:encodedType name:name];
+        NSString *comment = @"";
         
-        NSString *s = [NSString stringWithFormat:@"    %@;", declaration];
+        // Swift-only types are not encoded (NULL or empty encoding) but the Swift runtime knows them, eg. Swift.Optional<Swift.String>
+        NSDictionary *swiftField = ([encodedType length] == 0 && name) ? [self swiftFieldsByName][name] : nil;
+        if(swiftField) {
+            declaration = [NSString stringWithFormat:@"%@ %@", swiftField[@"type"], name];
+            NSMutableArray *comments = [NSMutableArray array];
+            if([swiftField[@"isVar"] boolValue] == NO) [comments addObject:@"let"];
+            if([swiftField[@"isStrong"] boolValue] == NO) [comments addObject:@"weak or unowned"];
+            if([comments count] > 0) comment = [NSString stringWithFormat:@" // %@", [comments componentsJoinedByString:@", "]];
+        }
+        
+        NSString *s = [NSString stringWithFormat:@"    %@;%@", declaration, comment];
         
         [ivarDictionaries addObject:@{@"name":(name ? name : @""), @"description":s}];
         
@@ -584,7 +606,78 @@
 
 #pragma mark Swift
 
+/*
+ Swift classes are visible in the Objective-C runtime, but only their @objc members are.
+ The Swift runtime (libswiftCore.dylib) can tell us more. We don't link against it, we resolve
+ the entry points we need with dlsym(). They are SWIFT_CC(swift) functions, which for these
+ signatures (pointers, integers, a two-words struct returned in registers) is compatible with
+ the C calling convention on arm64 and x86_64.
+ */
+
+typedef struct {
+    const char *data;
+    uintptr_t length;
+} RTBSwiftTypeNamePair;
+
+// Swift 5.5 and later fill in this struct, older runtimes take separate outName and outFreeFunc parameters,
+// passing &out and &out.freeFunc is compatible with both.
+typedef struct {
+    const char *name;
+    void (*freeFunc)(const char *);
+    bool isStrong;
+    bool isVar;
+    uint8_t padding[6];
+} RTBSwiftFieldReflectionMetadata;
+
+static char *(*rtb_swift_demangle)(const char *mangledName, size_t mangledNameLength, char *outputBuffer, size_t *outputBufferSize, uint32_t flags);
+static RTBSwiftTypeNamePair (*rtb_swift_getTypeName)(const void *type, bool qualified);
+static intptr_t (*rtb_swift_reflectionMirror_recursiveCount)(const void *type);
+static const void *(*rtb_swift_reflectionMirror_recursiveChildMetadata)(const void *type, intptr_t index, RTBSwiftFieldReflectionMetadata *outMetadata, void (**outFreeFunc)(const char *));
+
+static void rtb_loadSwiftRuntime(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        void *handle = RTLD_DEFAULT;
+        if(dlsym(handle, "swift_demangle") == NULL) {
+            handle = dlopen("/usr/lib/swift/libswiftCore.dylib", RTLD_LAZY); // macOS 10.14.4+, iOS 12.2+
+            if(handle == NULL) return;
+        }
+        rtb_swift_demangle = dlsym(handle, "swift_demangle");
+        rtb_swift_getTypeName = dlsym(handle, "swift_getTypeName");
+        rtb_swift_reflectionMirror_recursiveCount = dlsym(handle, "swift_reflectionMirror_recursiveCount"); // Swift 5.2+
+        rtb_swift_reflectionMirror_recursiveChildMetadata = dlsym(handle, "swift_reflectionMirror_recursiveChildMetadata");
+    });
+}
+
+static BOOL rtb_classHasSwiftMetadata(Class klass) {
+    // The Objective-C class object of a Swift class is the beginning of its Swift metadata.
+    // Bit 1 of objc_class.bits, the fifth word after isa, superclass and the two words of the cache,
+    // tells the class was compiled with the stable Swift ABI (Swift 5), bit 0 with the pre-stable ABI.
+#if __LP64__
+    if(klass == Nil) return NO;
+    uintptr_t bits = ((uintptr_t *)(__bridge void *)klass)[4];
+    return (bits & 0x2) != 0;
+#else
+    return NO;
+#endif
+}
+
+static BOOL rtb_classIsSwiftLegacy(Class klass) {
+    if(klass == Nil) return NO;
+    uintptr_t bits = ((uintptr_t *)(__bridge void *)klass)[4];
+    return (bits & 0x1) != 0;
+}
+
+static NSString *rtb_swiftTypeName(const void *metadata) {
+    if(metadata == NULL || rtb_swift_getTypeName == NULL) return nil;
+    RTBSwiftTypeNamePair pair = rtb_swift_getTypeName(metadata, true);
+    if(pair.data == NULL) return nil;
+    return [[NSString alloc] initWithBytes:pair.data length:pair.length encoding:NSUTF8StringEncoding];
+}
+
 - (BOOL)isSwiftClass {
+    Class klass = NSClassFromString(classObjectName);
+    if(rtb_classHasSwiftMetadata(klass) || rtb_classIsSwiftLegacy(klass)) return YES;
     // Swift classes are registered with mangled names such as _TtC10Foundation13__NSSwiftData,
     // or Module.ClassName since Swift 4. Objective-C class names cannot contain dots.
     return [classObjectName hasPrefix:@"_Tt"] || [classObjectName rangeOfString:@"."].location != NSNotFound;
@@ -594,27 +687,247 @@
     
     if([self isSwiftClass] == NO) return nil;
     
-    // swift_demangle() lives in libswiftCore.dylib, which we don't link against
-    static char *(*rtb_swift_demangle)(const char *mangledName, size_t mangledNameLength, char *outputBuffer, size_t *outputBufferSize, uint32_t flags) = NULL;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        rtb_swift_demangle = dlsym(RTLD_DEFAULT, "swift_demangle");
-        if(rtb_swift_demangle == NULL) {
-            void *handle = dlopen("/usr/lib/swift/libswiftCore.dylib", RTLD_LAZY);
-            if(handle) rtb_swift_demangle = dlsym(handle, "swift_demangle");
+    if(_cachedSwiftDemangledName) return _cachedSwiftDemangledName;
+    
+    rtb_loadSwiftRuntime();
+    
+    NSString *name = nil;
+    
+    Class klass = NSClassFromString(classObjectName);
+    if(rtb_classHasSwiftMetadata(klass)) {
+        name = rtb_swiftTypeName((__bridge const void *)klass); // also works for classes with an @objc(Name) name
+    }
+    
+    if(name == nil && rtb_swift_demangle != NULL) {
+        const char *mangledName = [classObjectName UTF8String];
+        char *demangledName = rtb_swift_demangle(mangledName, strlen(mangledName), NULL, NULL, 0);
+        if(demangledName) { // NULL if not a mangled name, eg. Module.ClassName
+            name = [NSString stringWithCString:demangledName encoding:NSUTF8StringEncoding];
+            free(demangledName);
         }
-    });
+    }
     
-    if(rtb_swift_demangle == NULL) return nil;
+    self.cachedSwiftDemangledName = name;
     
-    const char *mangledName = [classObjectName UTF8String];
-    char *demangledName = rtb_swift_demangle(mangledName, strlen(mangledName), NULL, NULL, 0);
-    if(demangledName == NULL) return nil; // not a mangled name, eg. Module.ClassName
+    return name;
+}
+
+- (NSString *)displayName {
+    // the mangled names are unreadable, eg. _TtGCs13ManagedBufferVC10Foundation10_LocaleICU5StateVSo16os_unfair_lock_s_$
+    if([classObjectName hasPrefix:@"_Tt"]) {
+        NSString *demangledName = [self swiftDemangledName];
+        if([demangledName length] > 0) return demangledName;
+    }
+    return classObjectName;
+}
+
+- (NSDictionary *)swiftFieldsByName {
+    /*"
+     The stored properties declared by this class (not by its superclasses), as read from the Swift metadata:
+     name -> @{@"type": qualified Swift type name, @"isVar": bool, @"isStrong": bool}
+     Empty for non-Swift classes and when the Swift runtime is too old.
+     "*/
     
-    NSString *s = [NSString stringWithCString:demangledName encoding:NSUTF8StringEncoding];
-    free(demangledName);
+    if(_cachedSwiftFieldsByName) return _cachedSwiftFieldsByName;
     
-    return s;
+    NSMutableDictionary *md = [NSMutableDictionary dictionary];
+    self.cachedSwiftFieldsByName = md;
+    
+    Class klass = NSClassFromString(classObjectName);
+    if(rtb_classHasSwiftMetadata(klass) == NO) return md;
+    
+    rtb_loadSwiftRuntime();
+    if(rtb_swift_reflectionMirror_recursiveCount == NULL || rtb_swift_reflectionMirror_recursiveChildMetadata == NULL) return md;
+    
+    const void *metadata = (__bridge const void *)klass;
+    
+    // the count includes the fields of the Swift superclasses, which come first
+    intptr_t count = rtb_swift_reflectionMirror_recursiveCount(metadata);
+    Class superclass = class_getSuperclass(klass);
+    intptr_t superclassCount = rtb_classHasSwiftMetadata(superclass) ? rtb_swift_reflectionMirror_recursiveCount((__bridge const void *)superclass) : 0;
+    
+    for(intptr_t i = superclassCount; i < count; i++) {
+        RTBSwiftFieldReflectionMetadata fieldMetadata = {0};
+        const void *fieldType = rtb_swift_reflectionMirror_recursiveChildMetadata(metadata, i, &fieldMetadata, &fieldMetadata.freeFunc);
+        
+        if(fieldMetadata.name) {
+            NSString *name = [NSString stringWithCString:fieldMetadata.name encoding:NSUTF8StringEncoding];
+            NSString *type = rtb_swiftTypeName(fieldType);
+            if(name && md[name] == nil) {
+                md[name] = @{@"type": (type ? type : @"?"), @"isVar": @(fieldMetadata.isVar), @"isStrong": @(fieldMetadata.isStrong)};
+            }
+            if(fieldMetadata.freeFunc) fieldMetadata.freeFunc(fieldMetadata.name);
+        }
+    }
+    
+    return md;
+}
+
++ (NSString *)swiftDeclarationForDemangledSymbol:(NSString *)symbol typeName:(NSString *)typeName {
+    /*"
+     Turns a demangled function symbol into a Swift declaration, or returns nil if the symbol is not a member of typeName:
+       Foo.__allocating_init(x: Swift.Int) -> Foo   ->  init(x: Swift.Int)
+       Foo.bar(Swift.Int) -> Swift.String            ->  func bar(Swift.Int) -> Swift.String
+       static Foo.baz() -> ()                        ->  static func baz() -> ()
+       Foo.name.getter : Swift.String                ->  var name: Swift.String { get }
+       Foo.__deallocating_deinit                     ->  deinit
+     "*/
+    NSString *s = symbol;
+    NSString *prefix = @"";
+    
+    if([s hasPrefix:@"merged "]) s = [s substringFromIndex:[@"merged " length]]; // identical code folding
+    
+    if([s hasPrefix:@"static "]) {
+        prefix = @"static ";
+        s = [s substringFromIndex:[@"static " length]];
+    }
+    
+    NSString *memberPrefix = [typeName stringByAppendingString:@"."];
+    if([s hasPrefix:memberPrefix] == NO) return nil; // not a member of this class, eg. type metadata or a folded function of another class
+    s = [s substringFromIndex:[memberPrefix length]];
+    
+    // private members carry a file discriminator, eg. (childActivationPoint in _2F6327E72581B7F866C81F7546545BE8)(implicit: Swift.Bool)
+    if([s hasPrefix:@"("]) {
+        NSRange inRange = [s rangeOfString:@" in _"];
+        NSRange closingRange = [s rangeOfString:@")"];
+        if(inRange.location != NSNotFound && closingRange.location != NSNotFound && inRange.location < closingRange.location) {
+            NSString *name = [s substringWithRange:NSMakeRange(1, inRange.location - 1)];
+            s = [name stringByAppendingString:[s substringFromIndex:closingRange.location + 1]];
+            prefix = [prefix stringByAppendingString:@"private "];
+        }
+    }
+    
+    if([s hasPrefix:@"__allocating_init("] || [s hasPrefix:@"init("]) {
+        NSRange arrowRange = [s rangeOfString:@" -> " options:NSBackwardsSearch];
+        if(arrowRange.location != NSNotFound) s = [s substringToIndex:arrowRange.location];
+        if([s hasPrefix:@"__allocating_init("]) s = [s substringFromIndex:[@"__allocating_" length]];
+        return [prefix stringByAppendingString:s];
+    }
+    
+    if([s isEqualToString:@"__deallocating_deinit"] || [s isEqualToString:@"deinit"]) {
+        return @"deinit";
+    }
+    
+    for(NSString *accessor in @[@".getter : ", @".setter : ", @".modify : ", @".read : "]) {
+        NSRange r = [s rangeOfString:accessor];
+        if(r.location != NSNotFound) {
+            NSString *name = [s substringToIndex:r.location];
+            NSString *type = [s substringFromIndex:r.location + [accessor length]];
+            BOOL isSetter = [accessor isEqualToString:@".setter : "] || [accessor isEqualToString:@".modify : "];
+            NSString *keyword = [name hasPrefix:@"subscript"] ? @"" : @"var ";
+            return [NSString stringWithFormat:@"%@%@%@: %@ { %@ }", prefix, keyword, name, type, isSetter ? @"get set" : @"get"];
+        }
+    }
+    
+    if([s rangeOfString:@"("].location == NSNotFound) return nil; // not a function
+    
+    return [NSString stringWithFormat:@"%@func %@", prefix, s];
+}
+
+- (NSArray *)sortedSwiftMembers {
+    /*"
+     The Swift members of this class that can be recovered from the exported symbols: the class vtable
+     is scanned and the entries that resolve to a symbol are demangled. Internal members are usually
+     stripped, and only the entries that differ from the superclass ones are considered.
+     Returns Swift declarations, eg. "init(name: Swift.String)", "func run() -> ()", "var name: Swift.String { get set }"
+     "*/
+    
+    if(_cachedSortedSwiftMembers) return _cachedSortedSwiftMembers;
+    
+    NSMutableArray *ma = [NSMutableArray array];
+    self.cachedSortedSwiftMembers = ma;
+    
+    Class klass = NSClassFromString(classObjectName);
+    if(rtb_classHasSwiftMetadata(klass) == NO) return ma;
+    
+    rtb_loadSwiftRuntime();
+    if(rtb_swift_demangle == NULL) return ma;
+    
+    NSString *typeName = rtb_swiftTypeName((__bridge const void *)klass);
+    if(typeName == nil) return ma;
+    
+    /*
+     Swift class metadata, see TargetClassMetadata in the Swift runtime headers:
+       isa, superclass, cache (2 words), bits           5 pointers, the Objective-C class object
+       flags, instanceAddressPoint, instanceSize         3 x uint32
+       instanceAlignMask, reserved                       2 x uint16
+       classSize, classAddressPoint                      2 x uint32
+       description, ivarDestroyer                        2 pointers
+       members: the superclass ones first, then the generic arguments, the field offsets and the vtable of this class
+     */
+    const size_t pointerSize = sizeof(void *);
+    const size_t classSizeOffset = 5 * pointerSize + 16;
+    const size_t classAddressPointOffset = 5 * pointerSize + 20;
+    const size_t membersOffset = 7 * pointerSize + 24;
+    
+    const uint8_t *metadata = (const uint8_t *)(__bridge const void *)klass;
+    uint32_t classSize = *(const uint32_t *)(metadata + classSizeOffset);
+    uint32_t classAddressPoint = *(const uint32_t *)(metadata + classAddressPointOffset);
+    if(classSize <= classAddressPoint || classSize - classAddressPoint > 1024 * 1024) return ma; // does not look right
+    size_t endOffset = classSize - classAddressPoint;
+    
+    Class superclass = class_getSuperclass(klass);
+    const uint8_t *superMetadata = NULL;
+    size_t superEndOffset = 0;
+    if(rtb_classHasSwiftMetadata(superclass)) {
+        superMetadata = (const uint8_t *)(__bridge const void *)superclass;
+        uint32_t superClassSize = *(const uint32_t *)(superMetadata + classSizeOffset);
+        uint32_t superClassAddressPoint = *(const uint32_t *)(superMetadata + classAddressPointOffset);
+        if(superClassSize > superClassAddressPoint) superEndOffset = superClassSize - superClassAddressPoint;
+    }
+    
+    NSMutableSet *seen = [NSMutableSet set];
+    NSMutableDictionary *accessorsByName = [NSMutableDictionary dictionary]; // "var name: T { get }" and "var name: T { get set }" -> keep the setter one
+    
+    for(size_t offset = membersOffset; offset + pointerSize <= endOffset; offset += pointerSize) {
+        uintptr_t value = *(const uintptr_t *)(metadata + offset);
+        
+        // inherited entries have the same value at the same offset in the superclass metadata
+        if(superMetadata && offset + pointerSize <= superEndOffset && *(const uintptr_t *)(superMetadata + offset) == value) continue;
+        if(value < 0x100000000) continue; // field offsets and other small integers
+        
+        Dl_info info;
+        if(dladdr((const void *)value, &info) == 0 || info.dli_sname == NULL) continue;
+        if(info.dli_saddr != (const void *)value) continue; // not exactly a symbol, eg. a stripped internal function
+        if(strcmp(info.dli_sname, "swift_deletedMethodError") == 0) continue;
+        
+        char *demangled = rtb_swift_demangle(info.dli_sname, strlen(info.dli_sname), NULL, NULL, 0);
+        if(demangled == NULL) continue;
+        NSString *symbol = [NSString stringWithCString:demangled encoding:NSUTF8StringEncoding];
+        free(demangled);
+        
+        NSString *declaration = [[self class] swiftDeclarationForDemangledSymbol:symbol typeName:typeName];
+        if(declaration == nil) continue;
+        
+        NSRange getRange = [declaration rangeOfString:@" { get"];
+        if(getRange.location != NSNotFound) {
+            NSString *key = [declaration substringToIndex:getRange.location];
+            if(accessorsByName[key] == nil || [declaration hasSuffix:@"{ get set }"]) accessorsByName[key] = declaration;
+            continue;
+        }
+        
+        if([seen containsObject:declaration]) continue;
+        [seen addObject:declaration];
+        [ma addObject:declaration];
+    }
+    
+    [ma addObjectsFromArray:[accessorsByName allValues]];
+    
+    // static members, then initializers, deinit, then the rest in alphabetical order
+    NSInteger (^rank)(NSString *) = ^NSInteger(NSString *d) {
+        if([d hasPrefix:@"static "]) return 0;
+        if([d hasPrefix:@"init"]) return 1;
+        if([d isEqualToString:@"deinit"]) return 2;
+        if([d hasPrefix:@"private "]) return 4;
+        return 3;
+    };
+    [ma sortUsingComparator:^NSComparisonResult(NSString *d1, NSString *d2) {
+        NSInteger r1 = rank(d1), r2 = rank(d2);
+        if(r1 != r2) return r1 < r2 ? NSOrderedAscending : NSOrderedDescending;
+        return [d1 compare:d2];
+    }];
+    
+    return ma;
 }
 
 #pragma mark BrowserNode protocol
@@ -624,7 +937,7 @@
 }
 
 - (NSString *)nodeName {
-    return classObjectName;
+    return [self displayName]; // the runtime name is classObjectName
 }
 
 - (NSString *)nodeInfo {

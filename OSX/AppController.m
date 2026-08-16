@@ -135,9 +135,17 @@
     }];
 }
 
+- (NSString *)selectedClassName {
+    // the runtime name of the selected class, which may differ from the displayed name for Swift classes
+    NSIndexPath *ip = [_classBrowser selectionIndexPath];
+    id item = ip ? [_classBrowser itemAtIndexPath:ip] : nil;
+    if([item isKindOfClass:[RTBClass class]]) return [(RTBClass *)item classObjectName];
+    return [[_classBrowser selectedCell] stringValue];
+}
+
 - (IBAction)saveAction:(id)sender {
 
-    NSString *className = [[_classBrowser selectedCell] stringValue];
+    NSString *className = [self selectedClassName];
     if ([className length] == 0) {
         NSAlert *alert = [[NSAlert alloc] init];
         alert.messageText = @"Select a class before saving.";
@@ -537,7 +545,7 @@
         return;
     }
     
-    NSString *classname = [[sender selectedCell] stringValue];
+    NSString *classname = [item isKindOfClass:[RTBClass class]] ? [(RTBClass *)item classObjectName] : [[sender selectedCell] stringValue];
     Class klass = nil;
     
     if ([classname length]) {

@@ -481,18 +481,99 @@
     [self assertHeader:header containsLine:@"- (void /* ? */)bar;"];
 }
 
+#pragma mark - Swift
+
 - (void)testSwiftClasses {
     RTBClass *cs = [RTBClass classStubWithClass:[RTBTestClass class]];
     XCTAssertFalse([cs isSwiftClass]);
     XCTAssertNil([cs swiftDemangledName]);
+    XCTAssertEqualObjects([cs displayName], @"RTBTestClass");
+    XCTAssertEqualObjects([cs swiftFieldsByName], @{});
+    XCTAssertEqualObjects([cs sortedSwiftMembers], @[]);
     
     Class swiftObject = NSClassFromString(@"_TtCs12_SwiftObject"); // Swift._SwiftObject, present when libswiftCore is loaded
     if(swiftObject == nil) return;
     RTBClass *swiftStub = [RTBClass classStubWithClass:swiftObject];
     XCTAssertTrue([swiftStub isSwiftClass]);
     XCTAssertEqualObjects([swiftStub swiftDemangledName], @"Swift._SwiftObject");
+    XCTAssertEqualObjects([swiftStub displayName], @"Swift._SwiftObject");
     NSString *header = [RTBRuntimeHeader headerForClass:swiftObject displayPropertiesDefaultValues:NO];
     XCTAssertTrue([header containsString:@"   Swift class: Swift._SwiftObject\n"]);
+}
+
+- (void)testSwiftClassMetadata {
+    // the Foundation overlay classes are present as soon as Foundation is loaded on macOS 12+
+    Class timerPublisher = NSClassFromString(@"_TtCE10FoundationCSo7NSTimer14TimerPublisher");
+    if(timerPublisher == nil) return;
+    
+    RTBClass *cs = [RTBClass classStubWithClass:timerPublisher];
+    XCTAssertTrue([cs isSwiftClass]);
+    XCTAssertEqualObjects([cs swiftDemangledName], @"(extension in Foundation):__C.NSTimer.TimerPublisher");
+    XCTAssertEqualObjects([cs displayName], @"(extension in Foundation):__C.NSTimer.TimerPublisher"); // mangled names are displayed demangled
+    XCTAssertEqualObjects([cs nodeName], [cs displayName]);
+    XCTAssertEqualObjects([cs classObjectName], @"_TtCE10FoundationCSo7NSTimer14TimerPublisher"); // the runtime name is unchanged
+    
+    // stored properties, from the Swift reflection metadata
+    NSDictionary *fields = [cs swiftFieldsByName];
+    XCTAssertEqualObjects(fields[@"interval"][@"type"], @"Swift.Double");
+    XCTAssertEqualObjects(fields[@"interval"][@"isVar"], @NO);
+    XCTAssertEqualObjects(fields[@"interval"][@"isStrong"], @YES);
+    XCTAssertEqualObjects(fields[@"tolerance"][@"type"], @"Swift.Optional<Swift.Double>");
+    XCTAssertEqualObjects(fields[@"sides"][@"isVar"], @YES);
+    
+    NSString *header = [RTBRuntimeHeader headerForClass:timerPublisher displayPropertiesDefaultValues:NO];
+    [self assertHeader:header containsLine:@"   Swift class: (extension in Foundation):__C.NSTimer.TimerPublisher"];
+    [self assertHeader:header containsLine:@"    Swift.Double interval; // let"];
+    [self assertHeader:header containsLine:@"    Swift.Optional<Swift.Double> tolerance; // let"];
+    XCTAssertFalse([header containsString:@"void /* ? */"]);
+    
+    // members recovered from the exported symbols
+    NSArray *members = [cs sortedSwiftMembers];
+    XCTAssertTrue([members count] >= 1, @"%@", members);
+    XCTAssertTrue([[members firstObject] hasPrefix:@"init(interval: Swift.Double, tolerance: Swift.Optional<Swift.Double>, runLoop: __C.NSRunLoop, mode: __C.NSRunLoopMode"], @"%@", members);
+    [self assertHeader:header containsLine:@"// Swift members, from the exported symbols (internal members are not visible)"];
+    
+    // the search finds the demangled name
+    XCTAssertTrue([cs containsSearchString:@"TimerPublisher"]);
+    XCTAssertTrue([cs containsSearchString:@"Swift.Optional<Swift.Double>"]);
+}
+
+- (void)testSwiftClassWithObjCName {
+    // Swift classes may be registered with a plain name with @objc(Name), the metadata still tells they are Swift
+    Class swiftData = NSClassFromString(@"Foundation.__NSSwiftData");
+    if(swiftData == nil) return;
+    RTBClass *cs = [RTBClass classStubWithClass:swiftData];
+    XCTAssertTrue([cs isSwiftClass]);
+    XCTAssertEqualObjects([cs swiftDemangledName], @"Foundation.__NSSwiftData");
+    XCTAssertEqualObjects([cs displayName], @"Foundation.__NSSwiftData");
+    XCTAssertEqualObjects([cs swiftFieldsByName][@"_backing"][@"type"], @"Swift.Optional<Foundation.__DataStorage>");
+}
+
+- (void)testSwiftDeclarationsFromDemangledSymbols {
+    NSString *t = @"Module.Foo";
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.__allocating_init(x: Swift.Int) -> Module.Foo" typeName:t], @"init(x: Swift.Int)");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.init(x: Swift.Int) -> Module.Foo" typeName:t], @"init(x: Swift.Int)");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.bar(Swift.Int) -> Swift.String" typeName:t], @"func bar(Swift.Int) -> Swift.String");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.run<A where A: Swift.Equatable>(_: A, count: Swift.Int) -> ()" typeName:t], @"func run<A where A: Swift.Equatable>(_: A, count: Swift.Int) -> ()");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"static Module.Foo.baz() -> ()" typeName:t], @"static func baz() -> ()");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.name.getter : Swift.String" typeName:t], @"var name: Swift.String { get }");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.name.setter : Swift.String" typeName:t], @"var name: Swift.String { get set }");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.name.modify : Swift.String" typeName:t], @"var name: Swift.String { get set }");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"static Module.Foo.shared.getter : Module.Foo" typeName:t], @"static var shared: Module.Foo { get }");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.__deallocating_deinit" typeName:t], @"deinit");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.deinit" typeName:t], @"deinit");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.(secret in _2F6327E72581B7F866C81F7546545BE8)(implicit: Swift.Bool) -> ()" typeName:t], @"private func secret(implicit: Swift.Bool) -> ()");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.(cache in _2F6327E72581B7F866C81F7546545BE8).getter : Swift.Int" typeName:t], @"private var cache: Swift.Int { get }");
+    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"merged Module.Foo.bar() -> ()" typeName:t], @"func bar() -> ()");
+    
+    // not members of Module.Foo: metadata, other classes (identical code folding), witnesses
+    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"type metadata for Module.Foo" typeName:t]);
+    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.FooBar.bar() -> ()" typeName:t]);
+    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Other.bar() -> ()" typeName:t]);
+    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"protocol witness for Swift.Equatable.== infix(A, A) -> Swift.Bool in conformance Module.Foo : Swift.Equatable in Module" typeName:t]);
+    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"destructiveInjectEnumTag value witness for Module.Foo" typeName:t]);
+    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"OUTLINED_FUNCTION_20" typeName:t]);
+    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.notAFunction" typeName:t]);
 }
 
 - (void)testSortedAdoptedProtocolsNames {

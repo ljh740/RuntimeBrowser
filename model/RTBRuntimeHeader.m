@@ -410,6 +410,16 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
         [header appendString:@"\n"];
     }
     
+    // Swift members, only their @objc members are visible in the Objective-C runtime
+    NSArray *swiftMembers = [class sortedSwiftMembers];
+    if([swiftMembers count] > 0) {
+        [header appendString:@"// Swift members, from the exported symbols (internal members are not visible)\n\n"];
+        for(NSString *member in swiftMembers) {
+            [header appendFormat:@"%@\n", member];
+        }
+        [header appendString:@"\n"];
+    }
+    
     [header appendString:@"@end\n"];
     
     return header;
