@@ -413,7 +413,7 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     // Swift members, only their @objc members are visible in the Objective-C runtime
     NSArray *swiftMembers = [class sortedSwiftMembers];
     if([swiftMembers count] > 0) {
-        [header appendString:@"// Swift members, from the exported symbols (internal members are not visible)\n\n"];
+        [header appendString:@"// Swift members, from the symbol table (stripped members are missing)\n\n"];
         for(NSString *member in swiftMembers) {
             [header appendFormat:@"%@\n", member];
         }

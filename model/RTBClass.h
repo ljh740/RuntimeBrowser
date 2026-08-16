@@ -60,7 +60,7 @@ The purpose of ClassStub is to have a way of accessing ALL of a class's currentl
 // The stored properties declared by this class, from the Swift metadata: name -> @{@"type", @"isVar", @"isStrong"}
 - (NSDictionary *)swiftFieldsByName;
 
-// The Swift members that can be recovered from the exported symbols, as Swift declarations,
+// The Swift members recovered from the symbol table of the class image, as Swift declarations,
 // eg. "init(name: Swift.String)", "func run() -> ()", "var name: Swift.String { get set }"
 - (NSArray *)sortedSwiftMembers;
 
