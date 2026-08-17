@@ -150,7 +150,7 @@ static RTBSwiftSymbolIndex *rtb_swiftSymbolIndexForImage(const void *imageBase) 
     static NSLock *lock = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        indexesByImage = [NSMutableDictionary dictionary];
+        indexesByImage = [[NSMutableDictionary alloc] init];
         lock = [[NSLock alloc] init];
     });
     

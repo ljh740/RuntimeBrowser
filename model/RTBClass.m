@@ -39,12 +39,7 @@
 #import "RTBSwift.h"
 #import "dlfcn.h"
 
-#if USE_NEW_DECODER
-#import "RTBTypeDecoder2.h"
-@compatibility_alias RTBTypeDecoder RTBTypeDecoder2;
-#else
 #import "RTBTypeDecoder.h"
-#endif
 
 #if (! TARGET_OS_IPHONE)
 #import <objc/objc-runtime.h>
