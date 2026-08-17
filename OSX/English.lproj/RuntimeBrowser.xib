@@ -658,14 +658,14 @@
         <window title="Preferences" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" hidesOnDeactivate="YES" oneShot="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="202" userLabel="Panel (Preferences)" customClass="NSPanel">
             <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" bottomStrut="YES"/>
-            <rect key="contentRect" x="196" y="436" width="265" height="94"/>
+            <rect key="contentRect" x="196" y="436" width="265" height="114"/>
             <rect key="screenRect" x="0.0" y="0.0" width="1680" height="1027"/>
             <view key="contentView" id="203">
-                <rect key="frame" x="0.0" y="6" width="265" height="94"/>
+                <rect key="frame" x="0.0" y="6" width="265" height="114"/>
                 <autoresizingMask key="autoresizingMask"/>
                 <subviews>
                     <button id="206">
-                        <rect key="frame" x="18" y="58" width="229" height="18"/>
+                        <rect key="frame" x="18" y="78" width="229" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="Display properties default values" bezelStyle="regularSquare" imagePosition="left" alignment="left" state="on" inset="2" id="269">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
@@ -676,7 +676,7 @@
                         </connections>
                     </button>
                     <button id="208">
-                        <rect key="frame" x="18" y="38" width="229" height="18"/>
+                        <rect key="frame" x="18" y="58" width="229" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="Colorize header file" bezelStyle="regularSquare" imagePosition="left" alignment="left" state="on" inset="2" id="270">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
@@ -687,7 +687,7 @@
                         </connections>
                     </button>
                     <button id="436">
-                        <rect key="frame" x="18" y="18" width="229" height="18"/>
+                        <rect key="frame" x="18" y="38" width="229" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="Add comment for blocks" bezelStyle="regularSquare" imagePosition="left" alignment="left" state="on" inset="2" id="437">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
@@ -695,6 +695,17 @@
                         </buttonCell>
                         <connections>
                             <binding destination="210" name="value" keyPath="values.RTBAddCommentsForBlocks" id="440"/>
+                        </connections>
+                    </button>
+                    <button id="470">
+                        <rect key="frame" x="18" y="18" width="229" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="check" title="Simplify Swift types (String? for Optional&lt;String&gt;)" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="471">
+                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                            <font key="font" metaFont="system"/>
+                        </buttonCell>
+                        <connections>
+                            <binding destination="210" name="value" keyPath="values.RTBSimplifiedSwiftTypes" id="472"/>
                         </connections>
                     </button>
                 </subviews>

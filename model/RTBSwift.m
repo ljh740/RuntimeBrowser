@@ -331,6 +331,116 @@ static NSArray *rtb_swiftSymbolNamesWithPrefix(const void *imageBase, NSString *
     return md;
 }
 
+#pragma mark Simplified type names
+
+// the index of the '>' closing the '<' at openIndex, NSNotFound if unbalanced
+static NSUInteger rtb_indexOfClosingAngleBracket(NSString *s, NSUInteger openIndex) {
+    NSInteger depth = 0;
+    for(NSUInteger i = openIndex; i < [s length]; i++) {
+        unichar c = [s characterAtIndex:i];
+        if(c == '<') depth++;
+        else if(c == '>' && !(i > 0 && [s characterAtIndex:i - 1] == '-')) { depth--; if(depth == 0) return i; } // not the arrow of a function type
+    }
+    return NSNotFound;
+}
+
+// splits at the commas that are not nested in <> or ()
+static NSArray *rtb_topLevelComponents(NSString *s) {
+    NSMutableArray *components = [NSMutableArray array];
+    NSInteger depth = 0;
+    NSUInteger start = 0;
+    for(NSUInteger i = 0; i < [s length]; i++) {
+        unichar c = [s characterAtIndex:i];
+        BOOL isArrow = c == '>' && i > 0 && [s characterAtIndex:i - 1] == '-';
+        if(c == '<' || c == '(' || c == '[') depth++;
+        else if((c == '>' && !isArrow) || c == ')' || c == ']') depth--;
+        else if(c == ',' && depth == 0) {
+            [components addObject:[[s substringWithRange:NSMakeRange(start, i - start)] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]];
+            start = i + 1;
+        }
+    }
+    [components addObject:[[s substringFromIndex:start] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]];
+    return components;
+}
+
+// a function type, a protocol composition or an existential must be parenthesized before a '?'
+static BOOL rtb_needsParenthesesForOptional(NSString *s) {
+    NSInteger depth = 0;
+    for(NSUInteger i = 0; i < [s length]; i++) {
+        unichar c = [s characterAtIndex:i];
+        BOOL isArrow = c == '>' && i > 0 && [s characterAtIndex:i - 1] == '-';
+        if(c == '<' || c == '(' || c == '[') depth++;
+        else if((c == '>' && !isArrow) || c == ')' || c == ']') depth--;
+        else if(depth == 0 && c == ' ') return YES; // "(Int) -> Int", "A & B", "any P", "some P"
+    }
+    return NO;
+}
+
++ (NSString *)simplifiedTypeNamesInString:(NSString *)string {
+    if([string length] == 0) return string;
+    
+    NSMutableString *s = [string mutableCopy];
+    
+    // the sugar, innermost first would be natural but leftmost first with recursion on the argument works the same
+    NSArray *sugars = @[@"Swift.Optional<", @"Swift.Array<", @"Swift.Dictionary<"];
+    BOOL found = YES;
+    NSUInteger guard = 0;
+    while(found && guard++ < 10000) {
+        found = NO;
+        NSRange best = NSMakeRange(NSNotFound, 0);
+        NSString *bestSugar = nil;
+        for(NSString *sugar in sugars) {
+            NSRange r = [s rangeOfString:sugar];
+            if(r.location != NSNotFound && (best.location == NSNotFound || r.location < best.location)) { best = r; bestSugar = sugar; }
+        }
+        if(bestSugar == nil) break;
+        
+        NSUInteger openIndex = best.location + best.length - 1;
+        NSUInteger closeIndex = rtb_indexOfClosingAngleBracket(s, openIndex);
+        if(closeIndex == NSNotFound) break;
+        
+        NSString *inner = [self simplifiedTypeNamesInString:[s substringWithRange:NSMakeRange(openIndex + 1, closeIndex - openIndex - 1)]];
+        NSString *replacement = nil;
+        if([bestSugar isEqualToString:@"Swift.Optional<"]) {
+            replacement = rtb_needsParenthesesForOptional(inner) ? [NSString stringWithFormat:@"(%@)?", inner] : [inner stringByAppendingString:@"?"];
+        } else if([bestSugar isEqualToString:@"Swift.Array<"]) {
+            replacement = [NSString stringWithFormat:@"[%@]", inner];
+        } else {
+            NSArray *components = rtb_topLevelComponents(inner);
+            replacement = [components count] == 2 ? [NSString stringWithFormat:@"[%@: %@]", components[0], components[1]] : [NSString stringWithFormat:@"Dictionary<%@>", inner];
+        }
+        [s replaceCharactersInRange:NSMakeRange(best.location, closeIndex - best.location + 1) withString:replacement];
+        found = YES;
+    }
+    
+    // module prefixes, when they start an identifier: Swift.Int -> Int, __C.NSRunLoop -> NSRunLoop, but not SwiftUI.View
+    for(NSString *prefix in @[@"Swift.", @"__C."]) {
+        NSRange searchRange = NSMakeRange(0, [s length]);
+        while(searchRange.length > 0) {
+            NSRange r = [s rangeOfString:prefix options:0 range:searchRange];
+            if(r.location == NSNotFound) break;
+            unichar before = r.location > 0 ? [s characterAtIndex:r.location - 1] : ' ';
+            BOOL startsIdentifier = !(isalnum(before) || before == '_' || before == '.');
+            if(startsIdentifier) {
+                [s deleteCharactersInRange:r];
+                searchRange = NSMakeRange(r.location, [s length] - r.location);
+            } else {
+                searchRange = NSMakeRange(r.location + r.length, [s length] - r.location - r.length);
+            }
+        }
+    }
+    
+    return s;
+}
+
++ (BOOL)simplifiesTypeNames {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"RTBSimplifiedSwiftTypes"];
+}
+
++ (NSString *)displayedTypeNamesInString:(NSString *)string {
+    return [self simplifiesTypeNames] ? [self simplifiedTypeNamesInString:string] : string;
+}
+
 #pragma mark Members
 
 + (NSString *)declarationForDemangledSymbol:(NSString *)symbol typeName:(NSString *)typeName {

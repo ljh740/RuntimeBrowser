@@ -9,6 +9,7 @@
 #import "RTBRuntimeHeader.h"
 #import "RTBMethod.h"
 #import "RTBClass.h"
+#import "RTBSwift.h"
 
 #import "RTBTypeDecoder.h"
 
@@ -406,7 +407,7 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
     if([swiftMembers count] > 0) {
         [header appendString:@"// Swift members, from the symbol table (stripped members are missing)\n\n"];
         for(NSString *member in swiftMembers) {
-            [header appendFormat:@"%@\n", member];
+            [header appendFormat:@"%@\n", [RTBSwift displayedTypeNamesInString:member]];
         }
         [header appendString:@"\n"];
     }

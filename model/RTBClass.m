@@ -328,7 +328,7 @@
         if([swiftField[@"isVar"] boolValue] == NO) [comments addObject:@"let"];
         if([swiftField[@"isStrong"] boolValue] == NO) [comments addObject:@"weak or unowned"];
         NSString *comment = [comments count] > 0 ? [NSString stringWithFormat:@" // %@", [comments componentsJoinedByString:@", "]] : @"";
-        return [NSString stringWithFormat:@"%@ %@;%@", swiftField[@"type"], name, comment];
+        return [NSString stringWithFormat:@"%@ %@;%@", [RTBSwift displayedTypeNamesInString:swiftField[@"type"]], name, comment];
     }
     
     // full declaration, including the modifiers, eg. int _foo[10], int (*_callback)(), unsigned int _flags : 3

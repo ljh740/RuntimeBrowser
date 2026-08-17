@@ -17,6 +17,7 @@
 @property (nonatomic, retain) IBOutlet UISwitch *showOCRuntimeClassesSwitch;
 @property (nonatomic, retain) IBOutlet UISwitch *addCommentForBlocksSwitch;
 @property (nonatomic, retain) IBOutlet UISwitch *toggleWebServerSwitch;
+@property (nonatomic, retain) IBOutlet UISwitch *simplifiedSwiftTypesSwitch;
 
 @end
 
@@ -38,6 +39,7 @@
     [_showOCRuntimeClassesSwitch setOn:[[[NSUserDefaults standardUserDefaults] valueForKey:@"RTBShowOCRuntimeClasses"] boolValue]];
     [_addCommentForBlocksSwitch setOn:[[[NSUserDefaults standardUserDefaults] valueForKey:@"RTBAddCommentsForBlocks"] boolValue]];
     [_toggleWebServerSwitch setOn:[[[NSUserDefaults standardUserDefaults] valueForKey:@"RTBEnableWebServer"] boolValue]];
+    [_simplifiedSwiftTypesSwitch setOn:[[NSUserDefaults standardUserDefaults] boolForKey:@"RTBSimplifiedSwiftTypes"]];
 
     [self updateWebServerStatus];
 }
@@ -65,6 +67,10 @@
 
 - (IBAction)addBlockCommentsAction:(id)sender {
     [[NSUserDefaults standardUserDefaults] setBool:((UISwitch *)sender).isOn forKey:@"RTBAddCommentsForBlocks"];
+}
+
+- (IBAction)simplifySwiftTypesAction:(id)sender {
+    [[NSUserDefaults standardUserDefaults] setBool:((UISwitch *)sender).isOn forKey:@"RTBSimplifiedSwiftTypes"];
 }
 
 - (IBAction)toggleWebServerAction:(id)sender {

@@ -680,6 +680,40 @@
     [self assertHeader:header containsLine:@"- (void)rtb_categoryInstanceMethod;"];
 }
 
+- (void)testSimplifiedSwiftTypeNames {
+    NSString *(^simplify)(NSString *) = ^(NSString *s) { return [RTBSwift simplifiedTypeNamesInString:s]; };
+    XCTAssertEqualObjects(simplify(@"Swift.Int"), @"Int");
+    XCTAssertEqualObjects(simplify(@"Swift.Optional<Swift.String>"), @"String?");
+    XCTAssertEqualObjects(simplify(@"Swift.Optional<Swift.Optional<Swift.Int>>"), @"Int??");
+    XCTAssertEqualObjects(simplify(@"Swift.Array<Swift.Int>"), @"[Int]");
+    XCTAssertEqualObjects(simplify(@"Swift.Dictionary<Swift.String, Swift.Array<Foundation.URL>>"), @"[String: [Foundation.URL]]");
+    XCTAssertEqualObjects(simplify(@"Swift.Optional<Swift.Range<Swift.Int>>"), @"Range<Int>?");
+    XCTAssertEqualObjects(simplify(@"Swift.Optional<(Swift.Int) -> Swift.Bool>"), @"((Int) -> Bool)?"); // function types are parenthesized
+    XCTAssertEqualObjects(simplify(@"Swift.Optional<(Swift.Int, Swift.Int)>"), @"(Int, Int)?");
+    XCTAssertEqualObjects(simplify(@"Swift.Optional<__C.NSObject & SwiftUI.PlatformAccessibilityElementProtocol>"), @"(NSObject & SwiftUI.PlatformAccessibilityElementProtocol)?");
+    XCTAssertEqualObjects(simplify(@"__C.NSRunLoopMode"), @"NSRunLoopMode");
+    XCTAssertEqualObjects(simplify(@"SwiftUI.View"), @"SwiftUI.View"); // not the Swift module
+    XCTAssertEqualObjects(simplify(@"Foundation.__NSSwiftData"), @"Foundation.__NSSwiftData");
+    XCTAssertEqualObjects(simplify(@"init(interval: Swift.Double, tolerance: Swift.Optional<Swift.Double>, runLoop: __C.NSRunLoop)"), @"init(interval: Double, tolerance: Double?, runLoop: NSRunLoop)");
+    XCTAssertEqualObjects(simplify(@"var sides: Swift.Dictionary<Combine.CombineIdentifier, Foundation.Side> { get set }"), @"var sides: [Combine.CombineIdentifier: Foundation.Side] { get set }");
+    XCTAssertEqualObjects(simplify(@"func receive<A where A: Combine.Subscriber, A.Failure == Swift.Never>(subscriber: A) -> ()"), @"func receive<A where A: Combine.Subscriber, A.Failure == Never>(subscriber: A) -> ()");
+    XCTAssertEqualObjects(simplify(@"Swift.Optional<Swift.String"), @"Optional<String"); // unbalanced: no sugar, prefixes still dropped
+    XCTAssertEqualObjects(simplify(@""), @"");
+    
+    // the user default
+    [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"RTBSimplifiedSwiftTypes"];
+    XCTAssertEqualObjects([RTBSwift displayedTypeNamesInString:@"Swift.Optional<Swift.String>"], @"String?");
+    Class timerPublisher = NSClassFromString(@"_TtCE10FoundationCSo7NSTimer14TimerPublisher");
+    if(timerPublisher) {
+        NSString *header = [RTBRuntimeHeader headerForClass:timerPublisher displayPropertiesDefaultValues:NO];
+        [self assertHeader:header containsLine:@"    Double interval; // let"];
+        [self assertHeader:header containsLine:@"    Double? tolerance; // let"];
+        [self assertHeader:header containsLine:@"var interval: Double { get }"];
+    }
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"RTBSimplifiedSwiftTypes"];
+    XCTAssertEqualObjects([RTBSwift displayedTypeNamesInString:@"Swift.Optional<Swift.String>"], @"Swift.Optional<Swift.String>");
+}
+
 - (void)testSortedAdoptedProtocolsNames {
     RTBProtocol *protocol = [RTBProtocol protocolStubWithProtocolName:@"NSMutableCopying"];
     XCTAssertEqualObjects([protocol sortedAdoptedProtocolsNames], @[]);

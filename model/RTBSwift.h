@@ -40,4 +40,12 @@
 // "Module.Foo.bar(Swift.Int) -> ()" with typeName "Module.Foo" -> "func bar(Swift.Int) -> ()", nil if the symbol is not a member of typeName.
 + (NSString *)declarationForDemangledSymbol:(NSString *)symbol typeName:(NSString *)typeName;
 
+// The Swift sugar for the type names found in a string: Swift.Optional<Swift.String> -> String?, Swift.Array<X> -> [X],
+// Swift.Dictionary<K, V> -> [K: V], and the Swift. and __C. module prefixes are dropped.
++ (NSString *)simplifiedTypeNamesInString:(NSString *)string;
+
+// The RTBSimplifiedSwiftTypes user default: whether the headers show the simplified type names.
++ (BOOL)simplifiesTypeNames;
++ (NSString *)displayedTypeNamesInString:(NSString *)string; // simplified or not, according to the user default
+
 @end
