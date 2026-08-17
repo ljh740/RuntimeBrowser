@@ -11,7 +11,8 @@
 
 @interface RTBClassCell : UITableViewCell
 
-@property (nonatomic, retain) NSString *className;
+@property (nonatomic, retain) NSString *className;   // the runtime name, used to show the header
+@property (nonatomic, retain) NSString *displayName; // what the cell shows, eg. the demangled name of a Swift class
 
 - (IBAction)showHeaders:(id)sender;
 

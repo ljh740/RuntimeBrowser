@@ -128,26 +128,28 @@
     return [GCDWebServerDataResponse responseWithHTML:html];
 }
 
-+ (NSString *)basePath {
++ (NSString *)systemRootPath {
     
-    static NSString *basePath = nil;
+    // deduced from the image of Foundation, eg. /Library/Developer/CoreSimulator/Volumes/iOS_23D8133/.../RuntimeRoot/System/Library/Frameworks/Foundation.framework/Foundation
+    // in the simulator, /System/Library/Frameworks/Foundation.framework/Foundation on the device
     
-    if(basePath == nil) {
+    static NSString *systemRootPath = nil;
+    
+    if(systemRootPath == nil) {
+        
+        NSString *foundationPath = @"/System/Library/Frameworks/Foundation.framework/Foundation";
         
         const char* imageNameC = class_getImageName([NSString class]);
-        if(imageNameC == NULL) return nil;
+        NSString *imagePath = imageNameC ? [NSString stringWithCString:imageNameC encoding:NSUTF8StringEncoding] : nil;
         
-        NSString *imagePath = [NSString stringWithCString:imageNameC encoding:NSUTF8StringEncoding];
-        if(imagePath == nil) return nil;
-        
-        static NSString *s = @"/System/Library/Frameworks/Foundation.framework/Foundation";
-        
-        if([s length] > [imagePath length]) return nil;
-        NSUInteger i = [imagePath length] - [s length];
-        basePath = [imagePath substringToIndex:i];
+        if([imagePath hasSuffix:foundationPath]) {
+            systemRootPath = [imagePath substringToIndex:[imagePath length] - [foundationPath length]];
+        } else {
+            systemRootPath = @"";
+        }
     }
     
-    return basePath;
+    return systemRootPath;
 }
 
 - (GCDWebServerDataResponse *)responseForClassHeaderPath:(NSString *)headerPath {
@@ -245,7 +247,7 @@
 
 - (GCDWebServerResponse *)responseForTreeWithPath:(NSString *)path {
     
-    GCDWebServerResponse *response = [self responseForTreeWithFrameworksName:path directory:@"/System/Library/"];
+    GCDWebServerResponse *response = [self responseForTreeWithFrameworksName:path directory:[[[self class] systemRootPath] stringByAppendingString:@"/System/Library/"]];
     if(response) return response;
     
     response = [self responseForTreeWithDylibWithName:path];
@@ -272,7 +274,7 @@
         NSMutableArray *files = [NSMutableArray array];
         [classStubsByImagePath enumerateKeysAndObjectsUsingBlock:^(NSString *imagePath, RTBClass *classStub, BOOL *stop) {
             
-            NSString *prefix = [NSString stringWithFormat:@"/System/Library%@", path];
+            NSString *prefix = [NSString stringWithFormat:@"%@/System/Library%@", [[self class] systemRootPath], path];
             if([imagePath hasPrefix:prefix] == NO) {
                 return;
             }

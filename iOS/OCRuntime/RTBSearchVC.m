@@ -74,6 +74,7 @@
 	// Set up the cell
 	RTBClass *cs = [_foundClasses objectAtIndex:indexPath.row];
 	cell.className = cs.classObjectName;
+	cell.displayName = cs.displayName;
 	cell.accessoryType = UITableViewCellAccessoryNone;
 	
     return cell;
@@ -118,7 +119,8 @@
 	
 	NSRange range;
 	for(RTBClass *cs in [_allClasses sortedClassStubs]) {
-		range = [[cs description] rangeOfString:searchBar.text options:NSCaseInsensitiveSearch];
+		range = [[cs displayName] rangeOfString:searchBar.text options:NSCaseInsensitiveSearch];
+		if(range.location == NSNotFound) range = [[cs classObjectName] rangeOfString:searchBar.text options:NSCaseInsensitiveSearch];
 		if(range.location != NSNotFound) {
 			//NSLog(@"-- add %@", cs);
 			[_foundClasses addObject:cs];

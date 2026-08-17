@@ -27,4 +27,8 @@
 
 - (void)useClass:(NSString *)className;
 
+// The path of the OS root: empty on the device, the runtime root in the simulator.
+// System frameworks live in <systemRootPath>/System/Library/Frameworks
++ (NSString *)systemRootPath;
+
 @end

@@ -15,12 +15,9 @@
 
 @implementation RTBClassCell
 
-- (void)setClassName:(NSString *)s {
-    _label.text = s;
-}
-
-- (NSString *)className {
-    return _label.text;
+- (void)setDisplayName:(NSString *)displayName {
+    _displayName = displayName;
+    _label.text = displayName;
 }
 
 - (IBAction)showHeaders:(id)sender {
@@ -29,7 +26,7 @@
     
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wundeclared-selector"
-	[appDelegate performSelector:@selector(showHeaderForClassName:) withObject:_label.text];
+	[appDelegate performSelector:@selector(showHeaderForClassName:) withObject:_className];
 #pragma clang diagnostic pop
 }
 

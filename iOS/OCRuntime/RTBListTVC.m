@@ -35,11 +35,11 @@
     
     for(RTBClass *cs in self.classStubs) {
         
-        if(_filterStringLowercase && [[cs.classObjectName lowercaseString] rangeOfString:_filterStringLowercase].location == NSNotFound) {
+        if(_filterStringLowercase && [[cs.displayName lowercaseString] rangeOfString:_filterStringLowercase].location == NSNotFound && [[cs.classObjectName lowercaseString] rangeOfString:_filterStringLowercase].location == NSNotFound) {
             continue;
         }
 
-        firstLetter = [cs.classObjectName characterAtIndex:0];
+        firstLetter = [cs.displayName characterAtIndex:0];
         
         if(currentLetter == 0) {
             currentLetter = firstLetter;
@@ -136,6 +136,7 @@
     
     RTBClass *cs = [theClassStubs objectAtIndex:indexPath.row];
     cell.className = cs.classObjectName;
+    cell.displayName = cs.displayName;
     cell.accessoryType = UITableViewCellAccessoryNone;
     
     return cell;

@@ -11,6 +11,7 @@
 #import "RTBRuntime.h"
 #import "RTBListTVC.h"
 #import "RTBInfoVC.h"
+#import "RTBAppDelegate.h"
 
 static const NSUInteger kPublicFrameworks = 0;
 static const NSUInteger kPrivateFrameworks = 1;
@@ -158,13 +159,13 @@ static const NSUInteger kPrivateFrameworks = 1;
             NSString *bundlePath = [b bundlePath];
 #if TARGET_IPHONE_SIMULATOR
             if (NSFoundationVersionNumber < NSFoundationVersionNumber_iOS_8_0
-                && [bundlePath isEqualToString:@"/System/Library/PrivateFrameworks/Safari.framework"]) {
+                && [bundlePath hasSuffix:@"/System/Library/PrivateFrameworks/Safari.framework"]) {
                 NSLog(@"-- skip %@, known to be a crasher on simulator", bundlePath);
                 continue;
             
             }
             if (NSFoundationVersionNumber >= 1400
-                && [bundlePath isEqualToString:@"/System/Library/PrivateFrameworks/Spotlight.framework"]) {
+                && [bundlePath hasSuffix:@"/System/Library/PrivateFrameworks/Spotlight.framework"]) {
                 NSLog(@"-- skip %@, known to be a crasher on simulator", bundlePath);
                 continue;
             }
@@ -307,8 +308,10 @@ static const NSUInteger kPrivateFrameworks = 1;
     
     self.bundleFrameworks = [self loadedBundleFrameworks];
     
-    self.privateFrameworks = [self frameworksAtPath:@"/System/Library/PrivateFrameworks"];
-    self.publicFrameworks = [self frameworksAtPath:@"/System/Library/Frameworks"];
+    // in the simulator, /System/Library is the one of the host Mac: the frameworks of iOS are in the runtime root
+    NSString *systemRootPath = [RTBAppDelegate systemRootPath];
+    self.privateFrameworks = [self frameworksAtPath:[systemRootPath stringByAppendingString:@"/System/Library/PrivateFrameworks"]];
+    self.publicFrameworks = [self frameworksAtPath:[systemRootPath stringByAppendingString:@"/System/Library/Frameworks"]];
 	
 	self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
 	self.definesPresentationContext = YES;
