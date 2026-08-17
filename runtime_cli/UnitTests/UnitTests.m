@@ -13,6 +13,7 @@
 #import "RTBRuntimeHeader.h"
 #import "RTBClass.h"
 #import "RTBProtocol.h"
+#import "RTBSwift.h"
 
 #define UNIT_TESTS 1
 
@@ -553,58 +554,58 @@
 
 - (void)testSwiftDeclarationsFromDemangledSymbols {
     NSString *t = @"Module.Foo";
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.__allocating_init(x: Swift.Int) -> Module.Foo" typeName:t], @"init(x: Swift.Int)");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.init(x: Swift.Int) -> Module.Foo" typeName:t], @"init(x: Swift.Int)");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.init(x: Swift.Int) -> Swift.Optional<Module.Foo>" typeName:t], @"init?(x: Swift.Int)"); // failable
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.bar(Swift.Int) -> Swift.String" typeName:t], @"func bar(Swift.Int) -> Swift.String");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.run<A where A: Swift.Equatable>(_: A, count: Swift.Int) -> ()" typeName:t], @"func run<A where A: Swift.Equatable>(_: A, count: Swift.Int) -> ()");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.load() throws -> Foundation.Data" typeName:t], @"func load() throws -> Foundation.Data");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"static Module.Foo.baz() -> ()" typeName:t], @"static func baz() -> ()");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"static Module.Foo.== infix(Module.Foo, Module.Foo) -> Swift.Bool" typeName:t], @"static func ==(Module.Foo, Module.Foo) -> Swift.Bool");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.name.getter : Swift.String" typeName:t], @"var name: Swift.String { get }");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.name.setter : Swift.String" typeName:t], @"var name: Swift.String { get set }");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.name.modify : Swift.String" typeName:t], @"var name: Swift.String { get set }");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.handler.getter : (Swift.Int) -> ()" typeName:t], @"var handler: (Swift.Int) -> () { get }");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"static Module.Foo.shared.getter : Module.Foo" typeName:t], @"static var shared: Module.Foo { get }");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"static Module.Foo.shared.unsafeMutableAddressor : Module.Foo" typeName:t], @"static var shared: Module.Foo { get }"); // emitted for static let too
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.subscript.getter : (Swift.Int) -> Swift.String" typeName:t], @"subscript(Swift.Int) -> Swift.String { get }");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.(secret in _2F6327E72581B7F866C81F7546545BE8)(implicit: Swift.Bool) -> ()" typeName:t], @"private func secret(implicit: Swift.Bool) -> ()");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.(cache in _2F6327E72581B7F866C81F7546545BE8).getter : Swift.Int" typeName:t], @"private var cache: Swift.Int { get }");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.__allocating_init(x: Swift.Int) -> Module.Foo" typeName:t], @"init(x: Swift.Int)");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.init(x: Swift.Int) -> Module.Foo" typeName:t], @"init(x: Swift.Int)");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.init(x: Swift.Int) -> Swift.Optional<Module.Foo>" typeName:t], @"init?(x: Swift.Int)"); // failable
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.bar(Swift.Int) -> Swift.String" typeName:t], @"func bar(Swift.Int) -> Swift.String");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.run<A where A: Swift.Equatable>(_: A, count: Swift.Int) -> ()" typeName:t], @"func run<A where A: Swift.Equatable>(_: A, count: Swift.Int) -> ()");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.load() throws -> Foundation.Data" typeName:t], @"func load() throws -> Foundation.Data");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"static Module.Foo.baz() -> ()" typeName:t], @"static func baz() -> ()");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"static Module.Foo.== infix(Module.Foo, Module.Foo) -> Swift.Bool" typeName:t], @"static func ==(Module.Foo, Module.Foo) -> Swift.Bool");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.name.getter : Swift.String" typeName:t], @"var name: Swift.String { get }");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.name.setter : Swift.String" typeName:t], @"var name: Swift.String { get set }");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.name.modify : Swift.String" typeName:t], @"var name: Swift.String { get set }");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.handler.getter : (Swift.Int) -> ()" typeName:t], @"var handler: (Swift.Int) -> () { get }");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"static Module.Foo.shared.getter : Module.Foo" typeName:t], @"static var shared: Module.Foo { get }");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"static Module.Foo.shared.unsafeMutableAddressor : Module.Foo" typeName:t], @"static var shared: Module.Foo { get }"); // emitted for static let too
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.subscript.getter : (Swift.Int) -> Swift.String" typeName:t], @"subscript(Swift.Int) -> Swift.String { get }");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.(secret in _2F6327E72581B7F866C81F7546545BE8)(implicit: Swift.Bool) -> ()" typeName:t], @"private func secret(implicit: Swift.Bool) -> ()");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"Module.Foo.(cache in _2F6327E72581B7F866C81F7546545BE8).getter : Swift.Int" typeName:t], @"private var cache: Swift.Int { get }");
     
     // symbols that stand for a member: dispatch thunks and method descriptors of public members (exported even when the implementation is stripped), property descriptors, specializations
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"dispatch thunk of Module.Foo.bar() -> ()" typeName:t], @"func bar() -> ()");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"dispatch thunk of static Module.Foo.baz() -> ()" typeName:t], @"static func baz() -> ()");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"dispatch thunk of Module.Foo.name.setter : Swift.String" typeName:t], @"var name: Swift.String { get set }");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"dispatch thunk of Module.Foo.__allocating_init(x: Swift.Int) -> Module.Foo" typeName:t], @"init(x: Swift.Int)");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"method descriptor for Module.Foo.bar() -> ()" typeName:t], @"func bar() -> ()");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"property descriptor for Module.Foo.name : Swift.String" typeName:t], @"var name: Swift.String");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"generic specialization <Swift.Int> of Module.Foo.run<A>(A) -> ()" typeName:t], @"func run<A>(A) -> ()");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"function signature specialization <Arg[0] = Dead> of Module.Foo.fire(__C.NSTimer) -> ()" typeName:t], @"func fire(__C.NSTimer) -> ()");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"merged Module.Foo.bar() -> ()" typeName:t], @"func bar() -> ()");
-    XCTAssertEqualObjects([RTBClass swiftDeclarationForDemangledSymbol:@"(extension in Other):Module.Foo.ext() -> ()" typeName:t], @"func ext() -> ()");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"dispatch thunk of Module.Foo.bar() -> ()" typeName:t], @"func bar() -> ()");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"dispatch thunk of static Module.Foo.baz() -> ()" typeName:t], @"static func baz() -> ()");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"dispatch thunk of Module.Foo.name.setter : Swift.String" typeName:t], @"var name: Swift.String { get set }");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"dispatch thunk of Module.Foo.__allocating_init(x: Swift.Int) -> Module.Foo" typeName:t], @"init(x: Swift.Int)");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"method descriptor for Module.Foo.bar() -> ()" typeName:t], @"func bar() -> ()");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"property descriptor for Module.Foo.name : Swift.String" typeName:t], @"var name: Swift.String");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"generic specialization <Swift.Int> of Module.Foo.run<A>(A) -> ()" typeName:t], @"func run<A>(A) -> ()");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"function signature specialization <Arg[0] = Dead> of Module.Foo.fire(__C.NSTimer) -> ()" typeName:t], @"func fire(__C.NSTimer) -> ()");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"merged Module.Foo.bar() -> ()" typeName:t], @"func bar() -> ()");
+    XCTAssertEqualObjects([RTBSwift declarationForDemangledSymbol:@"(extension in Other):Module.Foo.ext() -> ()" typeName:t], @"func ext() -> ()");
     
     // not members of Module.Foo: metadata, nested types, closures, thunks, witnesses, deinit, other classes (identical code folding)
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"type metadata for Module.Foo" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"type metadata accessor for Module.Foo" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.Nested.bar() -> ()" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.Nested.name.getter : Swift.String" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"closure #1 () -> () in Module.Foo.bar() -> ()" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"partial apply forwarder for closure #1 () -> () in Module.Foo.bar() -> ()" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"@objc Module.Foo.bar() -> ()" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"key path getter for Module.Foo.name : Swift.String : Module.Foo" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"variable initialization expression of Module.Foo.name : Swift.String" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"direct field offset for Module.Foo.name : Swift.String" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"default argument 0 of Module.Foo.bar(x: Swift.Int) -> ()" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.name.modify : Swift.String with unmangled suffix \".resume.0\"" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.__deallocating_deinit" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.deinit" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.__ivar_destroyer" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.FooBar.bar() -> ()" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Other.bar() -> ()" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"protocol witness for Swift.Equatable.== infix(A, A) -> Swift.Bool in conformance Module.Foo : Swift.Equatable in Module" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"destructiveInjectEnumTag value witness for Module.Foo" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"OUTLINED_FUNCTION_20" typeName:t]);
-    XCTAssertNil([RTBClass swiftDeclarationForDemangledSymbol:@"Module.Foo.notAFunction" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"type metadata for Module.Foo" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"type metadata accessor for Module.Foo" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"Module.Foo.Nested.bar() -> ()" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"Module.Foo.Nested.name.getter : Swift.String" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"closure #1 () -> () in Module.Foo.bar() -> ()" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"partial apply forwarder for closure #1 () -> () in Module.Foo.bar() -> ()" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"@objc Module.Foo.bar() -> ()" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"key path getter for Module.Foo.name : Swift.String : Module.Foo" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"variable initialization expression of Module.Foo.name : Swift.String" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"direct field offset for Module.Foo.name : Swift.String" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"default argument 0 of Module.Foo.bar(x: Swift.Int) -> ()" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"Module.Foo.name.modify : Swift.String with unmangled suffix \".resume.0\"" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"Module.Foo.__deallocating_deinit" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"Module.Foo.deinit" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"Module.Foo.__ivar_destroyer" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"Module.FooBar.bar() -> ()" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"Module.Other.bar() -> ()" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"protocol witness for Swift.Equatable.== infix(A, A) -> Swift.Bool in conformance Module.Foo : Swift.Equatable in Module" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"destructiveInjectEnumTag value witness for Module.Foo" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"OUTLINED_FUNCTION_20" typeName:t]);
+    XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"Module.Foo.notAFunction" typeName:t]);
 }
 
 - (void)testSortedAdoptedProtocolsNames {

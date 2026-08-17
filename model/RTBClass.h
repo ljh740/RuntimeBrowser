@@ -51,21 +51,12 @@ The purpose of ClassStub is to have a way of accessing ALL of a class's currentl
 - (NSString *)classObjectName;
 - (NSString *)imagePath;
 
-// Swift classes are registered in the Objective-C runtime with mangled names,
-// eg. _TtC10Foundation13__NSSwiftData or Module.ClassName, or with an @objc(Name) name.
+// Swift classes, see RTBSwift.h. The results are cached.
 - (BOOL)isSwiftClass;
 - (NSString *)swiftDemangledName; // qualified Swift name, eg. Foundation.__NSSwiftData, nil if not a Swift class
 - (NSString *)displayName;        // classObjectName, or the demangled name for mangled names
-
-// The stored properties declared by this class, from the Swift metadata: name -> @{@"type", @"isVar", @"isStrong"}
 - (NSDictionary *)swiftFieldsByName;
-
-// The Swift members recovered from the symbol table of the class image, as Swift declarations,
-// eg. "init(name: Swift.String)", "func run() -> ()", "var name: Swift.String { get set }"
 - (NSArray *)sortedSwiftMembers;
-
-// "Foo.bar(Swift.Int) -> ()" with typeName "Foo" -> "func bar(Swift.Int) -> ()", nil if the symbol is not a member of typeName
-+ (NSString *)swiftDeclarationForDemangledSymbol:(NSString *)symbol typeName:(NSString *)typeName;
 
 - (NSSet *)iVarNames;
 - (NSSet *)iVarDecodedTypes;

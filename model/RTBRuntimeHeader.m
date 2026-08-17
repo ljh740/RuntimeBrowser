@@ -275,6 +275,16 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
                             isClassMethod:(isInstanceMethod == NO)];
 }
 
+// one line per dictionary, then a blank line
++ (void)appendDescriptionsOfDictionaries:(NSArray *)dictionaries toHeader:(NSMutableString *)header {
+    for(NSDictionary *d in dictionaries) {
+        [header appendFormat:@"%@\n", d[@"description"]];
+    }
+    if([dictionaries count] > 0) {
+        [header appendString:@"\n"];
+    }
+}
+
 + (NSString *)headerForClass:(Class)aClass displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {
     if(aClass == nil) return nil;
     
@@ -326,23 +336,9 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
         [header appendString:@"\n\n"];
     }
 
-    // class properties, eg. @property (class, readonly) NSUserDefaults *standardUserDefaults;
-    NSArray *classPropertiesDictionaries = [class sortedClassPropertiesDictionariesWithDisplayPropertiesDefaultValues:displayPropertiesDefaultValues];
-    for(NSDictionary *d in classPropertiesDictionaries) {
-        [header appendFormat:@"%@\n", d[@"description"]];
-    }
-    if([classPropertiesDictionaries count] > 0) {
-        [header appendString:@"\n"];
-    }
-    
-    // instance properties
-    NSArray *propertiesDictionaries = [class sortedPropertiesDictionariesWithDisplayPropertiesDefaultValues:displayPropertiesDefaultValues];
-    for(NSDictionary *d in propertiesDictionaries) {
-        [header appendFormat:@"%@\n", d[@"description"]];
-    }
-    if([propertiesDictionaries count] > 0) {
-        [header appendString:@"\n"];
-    }
+    // class properties first, eg. @property (class, readonly) NSUserDefaults *standardUserDefaults;
+    [self appendDescriptionsOfDictionaries:[class sortedClassPropertiesDictionariesWithDisplayPropertiesDefaultValues:displayPropertiesDefaultValues] toHeader:header];
+    [self appendDescriptionsOfDictionaries:[class sortedPropertiesDictionariesWithDisplayPropertiesDefaultValues:displayPropertiesDefaultValues] toHeader:header];
     
     // class and instance methods
     NSArray *sortedMethods = [class sortedMethodsGroupsOfGroupsByImageAndThenCategory];
@@ -410,7 +406,7 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
         [header appendString:@"\n"];
     }
     
-    // Swift members, only their @objc members are visible in the Objective-C runtime
+    // Swift members, only the @objc ones are visible in the Objective-C runtime
     NSArray *swiftMembers = [class sortedSwiftMembers];
     if([swiftMembers count] > 0) {
         [header appendString:@"// Swift members, from the symbol table (stripped members are missing)\n\n"];
@@ -428,15 +424,6 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
 + (NSString *)headerForProtocol:(RTBProtocol *)protocol {
     BOOL displayPropertiesDefaultValues = [[NSUserDefaults standardUserDefaults] boolForKey:@"RTBDisplayPropertiesDefaultValues"];
     return [self headerForProtocol:protocol displayPropertiesDefaultValues:displayPropertiesDefaultValues];
-}
-
-+ (void)appendDescriptionsOfDictionaries:(NSArray *)dictionaries toHeader:(NSMutableString *)header {
-    for(NSDictionary *d in dictionaries) {
-        [header appendFormat:@"%@\n", d[@"description"]];
-    }
-    if([dictionaries count] > 0) {
-        [header appendString:@"\n"];
-    }
 }
 
 + (NSString *)headerForProtocol:(RTBProtocol *)protocol displayPropertiesDefaultValues:(BOOL)displayPropertiesDefaultValues {

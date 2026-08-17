@@ -36,9 +36,8 @@
 #import "RTBClass.h"
 #import "RTBRuntimeHeader.h"
 #import "RTBMethod.h"
+#import "RTBSwift.h"
 #import "dlfcn.h"
-#import <mach-o/loader.h>
-#import <mach-o/nlist.h>
 
 #if USE_NEW_DECODER
 #import "RTBTypeDecoder2.h"
@@ -344,6 +343,25 @@
     return NO;
 }
 
+- (NSString *)declarationForIvar:(Ivar)ivar name:(NSString *)name {
+    
+    // Swift-only types are not encoded (NULL or empty encoding) but the Swift runtime knows them, eg. Swift.Optional<Swift.String>
+    const char *encodedTypeC = ivar_getTypeEncoding(ivar);
+    NSString *encodedType = encodedTypeC ? [NSString stringWithCString:encodedTypeC encoding:NSUTF8StringEncoding] : nil;
+    
+    NSDictionary *swiftField = ([encodedType length] == 0 && name) ? [self swiftFieldsByName][name] : nil;
+    if(swiftField) {
+        NSMutableArray *comments = [NSMutableArray array];
+        if([swiftField[@"isVar"] boolValue] == NO) [comments addObject:@"let"];
+        if([swiftField[@"isStrong"] boolValue] == NO) [comments addObject:@"weak or unowned"];
+        NSString *comment = [comments count] > 0 ? [NSString stringWithFormat:@" // %@", [comments componentsJoinedByString:@", "]] : @"";
+        return [NSString stringWithFormat:@"%@ %@;%@", swiftField[@"type"], name, comment];
+    }
+    
+    // full declaration, including the modifiers, eg. int _foo[10], int (*_callback)(), unsigned int _flags : 3
+    return [[RTBTypeDecoder ivarDeclarationForEncodedType:encodedType name:name] stringByAppendingString:@";"];
+}
+
 - (NSArray *)sortedIvarDictionaries {
     
     Class class = NSClassFromString(classObjectName);
@@ -357,32 +375,13 @@
     for (unsigned int i = 0; i < ivarListCount; ++i ) {
         Ivar ivar = ivarList[i];
         
-        // Swift-only types are not encoded, the type encoding is NULL
-        const char *encodedTypeC = ivar_getTypeEncoding(ivar);
-        NSString *encodedType = encodedTypeC ? [NSString stringWithCString:encodedTypeC encoding:NSUTF8StringEncoding] : nil;
-        
         // the compiler may generate ivar entries with NULL ivar_name (e.g. for anonymous bit fields).
         const char *nameC = ivar_getName(ivar);
         NSString *name = nameC ? [NSString stringWithCString:nameC encoding:NSUTF8StringEncoding] : nil;
         
-        // full declaration, including the modifiers, eg. int _foo[10], int (*_callback)(), unsigned int _flags : 3
-        NSString *declaration = [RTBTypeDecoder ivarDeclarationForEncodedType:encodedType name:name];
-        NSString *comment = @"";
-        
-        // Swift-only types are not encoded (NULL or empty encoding) but the Swift runtime knows them, eg. Swift.Optional<Swift.String>
-        NSDictionary *swiftField = ([encodedType length] == 0 && name) ? [self swiftFieldsByName][name] : nil;
-        if(swiftField) {
-            declaration = [NSString stringWithFormat:@"%@ %@", swiftField[@"type"], name];
-            NSMutableArray *comments = [NSMutableArray array];
-            if([swiftField[@"isVar"] boolValue] == NO) [comments addObject:@"let"];
-            if([swiftField[@"isStrong"] boolValue] == NO) [comments addObject:@"weak or unowned"];
-            if([comments count] > 0) comment = [NSString stringWithFormat:@" // %@", [comments componentsJoinedByString:@", "]];
-        }
-        
-        NSString *s = [NSString stringWithFormat:@"    %@;%@", declaration, comment];
+        NSString *s = [NSString stringWithFormat:@"    %@", [self declarationForIvar:ivar name:name]];
         
         [ivarDictionaries addObject:@{@"name":(name ? name : @""), @"description":s}];
-        
     }
     free(ivarList);
     
@@ -608,278 +607,16 @@
 
 #pragma mark Swift
 
-/*
- Swift classes are visible in the Objective-C runtime, but only their @objc members are.
- The Swift runtime (libswiftCore.dylib) can tell us more. We don't link against it, we resolve
- the entry points we need with dlsym(). They are SWIFT_CC(swift) functions, which for these
- signatures (pointers, integers, a two-words struct returned in registers) is compatible with
- the C calling convention on arm64 and x86_64.
- */
-
-typedef struct {
-    const char *data;
-    uintptr_t length;
-} RTBSwiftTypeNamePair;
-
-// Swift 5.5 and later fill in this struct, older runtimes take separate outName and outFreeFunc parameters,
-// passing &out and &out.freeFunc is compatible with both.
-typedef struct {
-    const char *name;
-    void (*freeFunc)(const char *);
-    bool isStrong;
-    bool isVar;
-    uint8_t padding[6];
-} RTBSwiftFieldReflectionMetadata;
-
-static char *(*rtb_swift_demangle)(const char *mangledName, size_t mangledNameLength, char *outputBuffer, size_t *outputBufferSize, uint32_t flags);
-static RTBSwiftTypeNamePair (*rtb_swift_getTypeName)(const void *type, bool qualified);
-static RTBSwiftTypeNamePair (*rtb_swift_getMangledTypeName)(const void *type);
-static intptr_t (*rtb_swift_reflectionMirror_recursiveCount)(const void *type);
-static const void *(*rtb_swift_reflectionMirror_recursiveChildMetadata)(const void *type, intptr_t index, RTBSwiftFieldReflectionMetadata *outMetadata, void (**outFreeFunc)(const char *));
-
-static void rtb_loadSwiftRuntime(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        void *handle = RTLD_DEFAULT;
-        if(dlsym(handle, "swift_demangle") == NULL) {
-            handle = dlopen("/usr/lib/swift/libswiftCore.dylib", RTLD_LAZY); // macOS 10.14.4+, iOS 12.2+
-            if(handle == NULL) return;
-        }
-        rtb_swift_demangle = dlsym(handle, "swift_demangle");
-        rtb_swift_getTypeName = dlsym(handle, "swift_getTypeName");
-        rtb_swift_getMangledTypeName = dlsym(handle, "swift_getMangledTypeName"); // Swift 5.3+
-        rtb_swift_reflectionMirror_recursiveCount = dlsym(handle, "swift_reflectionMirror_recursiveCount"); // Swift 5.2+
-        rtb_swift_reflectionMirror_recursiveChildMetadata = dlsym(handle, "swift_reflectionMirror_recursiveChildMetadata");
-    });
-}
-
-static BOOL rtb_classHasSwiftMetadata(Class klass) {
-    // The Objective-C class object of a Swift class is the beginning of its Swift metadata.
-    // Bit 1 of objc_class.bits, the fifth word after isa, superclass and the two words of the cache,
-    // tells the class was compiled with the stable Swift ABI (Swift 5), bit 0 with the pre-stable ABI.
-#if __LP64__
-    if(klass == Nil) return NO;
-    uintptr_t bits = ((uintptr_t *)(__bridge void *)klass)[4];
-    return (bits & 0x2) != 0;
-#else
-    return NO;
-#endif
-}
-
-static BOOL rtb_classIsSwiftLegacy(Class klass) {
-    if(klass == Nil) return NO;
-    uintptr_t bits = ((uintptr_t *)(__bridge void *)klass)[4];
-    return (bits & 0x1) != 0;
-}
-
-static NSString *rtb_swiftTypeName(const void *metadata) {
-    if(metadata == NULL || rtb_swift_getTypeName == NULL) return nil;
-    RTBSwiftTypeNamePair pair = rtb_swift_getTypeName(metadata, true);
-    if(pair.data == NULL) return nil;
-    return [[NSString alloc] initWithBytes:pair.data length:pair.length encoding:NSUTF8StringEncoding];
-}
-
-static NSString *rtb_stringByRemovingGenericArguments(NSString *typeName) {
-    // Swift.ManagedBuffer<Foundation._LocaleICU.State, __C.os_unfair_lock_s> -> Swift.ManagedBuffer, Module.Outer<A>.Inner<B> -> Module.Outer.Inner
-    NSMutableString *ms = [NSMutableString string];
-    NSUInteger depth = 0;
-    for(NSUInteger i = 0; i < [typeName length]; i++) {
-        unichar c = [typeName characterAtIndex:i];
-        if(c == '<') depth++;
-        else if(c == '>') { if(depth > 0) depth--; }
-        else if(depth == 0) [ms appendFormat:@"%C", c];
-    }
-    return ms;
-}
-
-static NSString *rtb_swiftMangledNominalTypeName(const void *metadata) {
-    /*"
-     The mangled name of the type without the generic arguments, eg. 7SwiftUI17AccessibilityNodeC.
-     The symbols of the members of the type start with "$s" followed by this name.
-     "*/
-    if(metadata == NULL || rtb_swift_getMangledTypeName == NULL) return nil;
-    RTBSwiftTypeNamePair pair = rtb_swift_getMangledTypeName(metadata);
-    if(pair.data == NULL || pair.length == 0) return nil;
-    NSString *s = [[NSString alloc] initWithBytes:pair.data length:pair.length encoding:NSUTF8StringEncoding];
-    if([s hasSuffix:@"G"]) {
-        // the generic arguments follow the nominal type after a 'y', eg. s13ManagedBufferCySSSiG for Swift.ManagedBuffer<Swift.String, Swift.Int>
-        // identifiers are length-prefixed and may contain a 'y', so we walk the tokens
-        NSUInteger i = 0, length = pair.length;
-        while(i < length) {
-            char c = pair.data[i];
-            if(c >= '0' && c <= '9') {
-                NSUInteger identifierLength = 0;
-                while(i < length && pair.data[i] >= '0' && pair.data[i] <= '9') identifierLength = identifierLength * 10 + (pair.data[i++] - '0');
-                i += identifierLength;
-            } else if(c == 'y') {
-                break;
-            } else {
-                i++; // a context marker, eg. C, V, O, E, So, s
-            }
-        }
-        if(i >= length) return nil;
-        s = [[NSString alloc] initWithBytes:pair.data length:i encoding:NSUTF8StringEncoding];
-    }
-    return s;
-}
-
-#pragma mark Swift symbols
-
-/*
- The names of the Swift symbols of an image, sorted, so that the members of a class can be found by prefix.
- The pointers point into the string table of the image, which stays mapped. Built once per image.
- */
-
-typedef struct {
-    const char **names;
-    NSUInteger count;
-} RTBSwiftSymbolIndex;
-
-static int rtb_compareSymbolNames(const void *a, const void *b) {
-    return strcmp(*(const char **)a, *(const char **)b);
-}
-
-static RTBSwiftSymbolIndex *rtb_swiftSymbolIndexForImage(const void *imageBase) {
-    
-    static NSMutableDictionary *indexesByImage = nil;
-    static NSLock *lock = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        indexesByImage = [NSMutableDictionary dictionary];
-        lock = [[NSLock alloc] init];
-    });
-    
-    if(imageBase == NULL) return NULL;
-    
-    NSValue *key = [NSValue valueWithPointer:imageBase];
-    
-    [lock lock];
-    NSValue *cached = indexesByImage[key];
-    [lock unlock];
-    if(cached) return (RTBSwiftSymbolIndex *)[cached pointerValue];
-    
-    RTBSwiftSymbolIndex *index = calloc(1, sizeof(RTBSwiftSymbolIndex));
-    
-#if __LP64__
-    typedef struct mach_header_64 rtb_mach_header;
-    typedef struct segment_command_64 rtb_segment_command;
-    typedef struct nlist_64 rtb_nlist;
-    const uint32_t rtb_lc_segment = LC_SEGMENT_64;
-#else
-    typedef struct mach_header rtb_mach_header;
-    typedef struct segment_command rtb_segment_command;
-    typedef struct nlist rtb_nlist;
-    const uint32_t rtb_lc_segment = LC_SEGMENT;
-#endif
-    
-    const rtb_mach_header *header = (const rtb_mach_header *)imageBase;
-    const struct load_command *command = (const struct load_command *)(header + 1);
-    const rtb_segment_command *textSegment = NULL;
-    const rtb_segment_command *linkeditSegment = NULL;
-    const struct symtab_command *symtabCommand = NULL;
-    
-    for(uint32_t i = 0; i < header->ncmds; i++) {
-        if(command->cmd == rtb_lc_segment) {
-            const rtb_segment_command *segment = (const rtb_segment_command *)command;
-            if(strcmp(segment->segname, SEG_TEXT) == 0) textSegment = segment;
-            else if(strcmp(segment->segname, SEG_LINKEDIT) == 0) linkeditSegment = segment;
-        } else if(command->cmd == LC_SYMTAB) {
-            symtabCommand = (const struct symtab_command *)command;
-        }
-        command = (const struct load_command *)((const uint8_t *)command + command->cmdsize);
-    }
-    
-    if(textSegment && linkeditSegment && symtabCommand && symtabCommand->nsyms > 0) {
-        // the symbol table lives in __LINKEDIT, whose file offset differs from its address
-        intptr_t slide = (intptr_t)header - (intptr_t)textSegment->vmaddr;
-        const uint8_t *linkeditBase = (const uint8_t *)(linkeditSegment->vmaddr - linkeditSegment->fileoff + slide);
-        const rtb_nlist *symbols = (const rtb_nlist *)(linkeditBase + symtabCommand->symoff);
-        const char *strings = (const char *)(linkeditBase + symtabCommand->stroff);
-        
-        index->names = malloc(symtabCommand->nsyms * sizeof(const char *));
-        for(uint32_t i = 0; i < symtabCommand->nsyms; i++) {
-            if((symbols[i].n_type & N_TYPE) != N_SECT) continue; // defined in a section of this image
-            if(symbols[i].n_un.n_strx == 0 || symbols[i].n_un.n_strx >= symtabCommand->strsize) continue;
-            const char *name = strings + symbols[i].n_un.n_strx;
-            if(name[0] != '_' || name[1] != '$' || name[2] != 's') continue; // Swift symbols only, eg. _$s7SwiftUI17AccessibilityNodeC13sendAction5namedSbSS_tF
-            index->names[index->count++] = name + 1; // skip the leading underscore
-        }
-        qsort(index->names, index->count, sizeof(const char *), rtb_compareSymbolNames);
-    }
-    
-    [lock lock];
-    if(indexesByImage[key] == nil) {
-        indexesByImage[key] = [NSValue valueWithPointer:index];
-    } else {
-        // another thread was faster
-        free(index->names);
-        free(index);
-        index = (RTBSwiftSymbolIndex *)[indexesByImage[key] pointerValue];
-    }
-    [lock unlock];
-    
-    return index;
-}
-
-static NSArray *rtb_swiftSymbolNamesWithPrefix(const void *imageBase, NSString *prefix) {
-    
-    RTBSwiftSymbolIndex *index = rtb_swiftSymbolIndexForImage(imageBase);
-    if(index == NULL || index->count == 0 || [prefix length] == 0) return @[];
-    
-    const char *prefixC = [prefix UTF8String];
-    size_t prefixLength = strlen(prefixC);
-    
-    // binary search for the first symbol >= prefix, then walk while the prefix matches
-    NSUInteger low = 0, high = index->count;
-    while(low < high) {
-        NSUInteger mid = (low + high) / 2;
-        if(strncmp(index->names[mid], prefixC, prefixLength) < 0) low = mid + 1;
-        else high = mid;
-    }
-    
-    NSMutableArray *ma = [NSMutableArray array];
-    for(NSUInteger i = low; i < index->count && strncmp(index->names[i], prefixC, prefixLength) == 0; i++) {
-        NSString *name = [NSString stringWithCString:index->names[i] encoding:NSUTF8StringEncoding];
-        if(name && [[ma lastObject] isEqualToString:name] == NO) [ma addObject:name]; // sorted, so duplicates are neighbours
-    }
-    return ma;
-}
-
 - (BOOL)isSwiftClass {
-    Class klass = NSClassFromString(classObjectName);
-    if(rtb_classHasSwiftMetadata(klass) || rtb_classIsSwiftLegacy(klass)) return YES;
-    // Swift classes are registered with mangled names such as _TtC10Foundation13__NSSwiftData,
-    // or Module.ClassName since Swift 4. Objective-C class names cannot contain dots.
-    return [classObjectName hasPrefix:@"_Tt"] || [classObjectName rangeOfString:@"."].location != NSNotFound;
+    return [RTBSwift isSwiftClass:NSClassFromString(classObjectName)];
 }
 
 - (NSString *)swiftDemangledName {
-    
-    if([self isSwiftClass] == NO) return nil;
-    
-    if(_cachedSwiftDemangledName) return _cachedSwiftDemangledName;
-    
-    rtb_loadSwiftRuntime();
-    
-    NSString *name = nil;
-    
-    Class klass = NSClassFromString(classObjectName);
-    if(rtb_classHasSwiftMetadata(klass)) {
-        name = rtb_swiftTypeName((__bridge const void *)klass); // also works for classes with an @objc(Name) name
+    if(_cachedSwiftDemangledName == nil) {
+        NSString *name = [RTBSwift nameOfClass:NSClassFromString(classObjectName)];
+        self.cachedSwiftDemangledName = name ? name : @""; // remember the failures too
     }
-    
-    if(name == nil && rtb_swift_demangle != NULL) {
-        const char *mangledName = [classObjectName UTF8String];
-        char *demangledName = rtb_swift_demangle(mangledName, strlen(mangledName), NULL, NULL, 0);
-        if(demangledName) { // NULL if not a mangled name, eg. Module.ClassName
-            name = [NSString stringWithCString:demangledName encoding:NSUTF8StringEncoding];
-            free(demangledName);
-        }
-    }
-    
-    self.cachedSwiftDemangledName = name;
-    
-    return name;
+    return [_cachedSwiftDemangledName length] > 0 ? _cachedSwiftDemangledName : nil;
 }
 
 - (NSString *)displayName {
@@ -892,243 +629,17 @@ static NSArray *rtb_swiftSymbolNamesWithPrefix(const void *imageBase, NSString *
 }
 
 - (NSDictionary *)swiftFieldsByName {
-    /*"
-     The stored properties declared by this class (not by its superclasses), as read from the Swift metadata:
-     name -> @{@"type": qualified Swift type name, @"isVar": bool, @"isStrong": bool}
-     Empty for non-Swift classes and when the Swift runtime is too old.
-     "*/
-    
-    if(_cachedSwiftFieldsByName) return _cachedSwiftFieldsByName;
-    
-    NSMutableDictionary *md = [NSMutableDictionary dictionary];
-    self.cachedSwiftFieldsByName = md;
-    
-    Class klass = NSClassFromString(classObjectName);
-    if(rtb_classHasSwiftMetadata(klass) == NO) return md;
-    
-    rtb_loadSwiftRuntime();
-    if(rtb_swift_reflectionMirror_recursiveCount == NULL || rtb_swift_reflectionMirror_recursiveChildMetadata == NULL) return md;
-    
-    const void *metadata = (__bridge const void *)klass;
-    
-    // the count includes the fields of the Swift superclasses, which come first
-    intptr_t count = rtb_swift_reflectionMirror_recursiveCount(metadata);
-    Class superclass = class_getSuperclass(klass);
-    intptr_t superclassCount = rtb_classHasSwiftMetadata(superclass) ? rtb_swift_reflectionMirror_recursiveCount((__bridge const void *)superclass) : 0;
-    
-    for(intptr_t i = superclassCount; i < count; i++) {
-        RTBSwiftFieldReflectionMetadata fieldMetadata = {0};
-        const void *fieldType = rtb_swift_reflectionMirror_recursiveChildMetadata(metadata, i, &fieldMetadata, &fieldMetadata.freeFunc);
-        
-        if(fieldMetadata.name) {
-            NSString *name = [NSString stringWithCString:fieldMetadata.name encoding:NSUTF8StringEncoding];
-            NSString *type = rtb_swiftTypeName(fieldType);
-            if(name && md[name] == nil) {
-                md[name] = @{@"type": (type ? type : @"?"), @"isVar": @(fieldMetadata.isVar), @"isStrong": @(fieldMetadata.isStrong)};
-            }
-            if(fieldMetadata.freeFunc) fieldMetadata.freeFunc(fieldMetadata.name);
-        }
+    if(_cachedSwiftFieldsByName == nil) {
+        self.cachedSwiftFieldsByName = [RTBSwift fieldsByNameOfClass:NSClassFromString(classObjectName)];
     }
-    
-    return md;
-}
-
-+ (NSString *)swiftDeclarationForDemangledSymbol:(NSString *)symbol typeName:(NSString *)typeName {
-    /*"
-     Turns a demangled symbol into a Swift declaration, or returns nil if the symbol is not a member of typeName:
-       Foo.__allocating_init(x: Swift.Int) -> Foo   ->  init(x: Swift.Int)
-       Foo.bar(Swift.Int) -> Swift.String            ->  func bar(Swift.Int) -> Swift.String
-       static Foo.baz() -> ()                        ->  static func baz() -> ()
-       Foo.name.getter : Swift.String                ->  var name: Swift.String { get }
-       dispatch thunk of Foo.bar() -> ()             ->  func bar() -> ()
-       property descriptor for Foo.name : Swift.String -> var name: Swift.String
-     Deinitializers, nested types, closures, thunks and metadata are not members.
-     "*/
-    NSString *s = symbol;
-    NSString *prefix = @"";
-    
-    if([s rangeOfString:@" with unmangled suffix "].location != NSNotFound) return nil; // eg. coroutine continuations, .resume.0
-    
-    // symbols that stand for a member: the member itself, its dispatch thunk, its descriptor, a specialization
-    for(NSString *p in @[@"dispatch thunk of ", @"method descriptor for ", @"property descriptor for ", @"merged "]) {
-        if([s hasPrefix:p]) s = [s substringFromIndex:[p length]];
-    }
-    for(NSString *p in @[@"generic specialization <", @"function signature specialization <"]) {
-        if([s hasPrefix:p]) {
-            NSRange r = [s rangeOfString:@"> of "];
-            if(r.location == NSNotFound) return nil;
-            s = [s substringFromIndex:r.location + [@"> of " length]];
-        }
-    }
-    
-    if([s hasPrefix:@"static "]) {
-        prefix = @"static ";
-        s = [s substringFromIndex:[@"static " length]];
-    }
-    
-    // members declared in extensions, eg. (extension in Other):Module.Foo.bar() -> ()
-    if([s hasPrefix:@"(extension in "] && [typeName hasPrefix:@"(extension in "] == NO) {
-        NSRange r = [s rangeOfString:@"):"];
-        if(r.location != NSNotFound) s = [s substringFromIndex:r.location + 2];
-    }
-    
-    NSString *memberPrefix = [typeName stringByAppendingString:@"."];
-    if([s hasPrefix:memberPrefix] == NO) return nil; // not a member of this class, eg. type metadata, a closure, a protocol witness, or a folded function of another class
-    s = [s substringFromIndex:[memberPrefix length]];
-    
-    // private members carry a file discriminator, eg. (childActivationPoint in _2F6327E72581B7F866C81F7546545BE8)(implicit: Swift.Bool)
-    if([s hasPrefix:@"("]) {
-        NSRange inRange = [s rangeOfString:@" in _"];
-        NSRange closingRange = [s rangeOfString:@")"];
-        if(inRange.location != NSNotFound && closingRange.location != NSNotFound && inRange.location < closingRange.location) {
-            NSString *name = [s substringWithRange:NSMakeRange(1, inRange.location - 1)];
-            s = [name stringByAppendingString:[s substringFromIndex:closingRange.location + 1]];
-            prefix = [prefix stringByAppendingString:@"private "];
-        } else {
-            return nil;
-        }
-    }
-    
-    if([s hasPrefix:@"__allocating_init("] || [s hasPrefix:@"init("]) {
-        NSRange arrowRange = [s rangeOfString:@" -> " options:NSBackwardsSearch];
-        NSString *returnType = arrowRange.location != NSNotFound ? [s substringFromIndex:arrowRange.location + 4] : nil;
-        if(arrowRange.location != NSNotFound) s = [s substringToIndex:arrowRange.location];
-        if([s hasPrefix:@"__allocating_init("]) s = [s substringFromIndex:[@"__allocating_" length]];
-        if([returnType hasPrefix:@"Swift.Optional<"]) s = [@"init?" stringByAppendingString:[s substringFromIndex:[@"init" length]]]; // failable
-        return [prefix stringByAppendingString:s];
-    }
-    
-    if([s hasPrefix:@"__deallocating_deinit"] || [s hasPrefix:@"deinit"] || [s hasPrefix:@"__ivar_"]) {
-        return nil; // every class has them, not interesting
-    }
-    
-    // accessors, eg. name.getter : Swift.String, subscript.getter : (Swift.Int) -> Swift.String
-    for(NSString *accessor in @[@".getter : ", @".setter : ", @".modify : ", @".read : ", @".unsafeMutableAddressor : ", @".didset : ", @".willset : "]) {
-        NSRange r = [s rangeOfString:accessor];
-        if(r.location != NSNotFound) {
-            NSString *name = [s substringToIndex:r.location];
-            NSString *type = [s substringFromIndex:r.location + [accessor length]];
-            if([name rangeOfString:@"."].location != NSNotFound) return nil; // a property of a nested type
-            // note that unsafeMutableAddressor is emitted for static let as well, the setter symbol tells about mutability
-            BOOL isSetter = [accessor isEqualToString:@".setter : "] || [accessor isEqualToString:@".modify : "] || [accessor isEqualToString:@".didset : "] || [accessor isEqualToString:@".willset : "];
-            NSString *accessors = isSetter ? @"{ get set }" : @"{ get }";
-            if([name isEqualToString:@"subscript"] && [type hasPrefix:@"("]) {
-                return [NSString stringWithFormat:@"%@subscript%@ %@", prefix, type, accessors];
-            }
-            return [NSString stringWithFormat:@"%@var %@: %@ %@", prefix, name, type, accessors];
-        }
-    }
-    
-    // property, from a property descriptor, eg. name : Swift.String
-    NSRange colonRange = [s rangeOfString:@" : "];
-    NSRange parenRange = [s rangeOfString:@"("];
-    NSRange angleRange = [s rangeOfString:@"<"];
-    if(colonRange.location != NSNotFound && (parenRange.location == NSNotFound || colonRange.location < parenRange.location) && (angleRange.location == NSNotFound || colonRange.location < angleRange.location)) {
-        NSString *name = [s substringToIndex:colonRange.location];
-        if([name rangeOfString:@"."].location != NSNotFound || [name rangeOfString:@" "].location != NSNotFound) return nil;
-        return [NSString stringWithFormat:@"%@var %@: %@", prefix, name, [s substringFromIndex:colonRange.location + 3]];
-    }
-    
-    // functions, eg. bar(Swift.Int) -> Swift.String, run<A where A: Swift.Equatable>(A) -> ()
-    if(parenRange.location == NSNotFound) return nil;
-    NSUInteger nameEnd = (angleRange.location != NSNotFound && angleRange.location < parenRange.location) ? angleRange.location : parenRange.location;
-    NSString *name = [s substringToIndex:nameEnd];
-    
-    // operators, eg. == infix(Module.Foo, Module.Foo) -> Swift.Bool
-    for(NSString *fixity in @[@" infix", @" prefix", @" postfix"]) {
-        if([name hasSuffix:fixity]) {
-            name = [name substringToIndex:[name length] - [fixity length]];
-            s = [name stringByAppendingString:[s substringFromIndex:nameEnd]];
-            break;
-        }
-    }
-    
-    if([name length] == 0 || [name rangeOfString:@"."].location != NSNotFound || [name rangeOfString:@" "].location != NSNotFound) return nil; // a member of a nested type, or not a plain function
-    
-    return [NSString stringWithFormat:@"%@func %@", prefix, s];
+    return _cachedSwiftFieldsByName;
 }
 
 - (NSArray *)sortedSwiftMembers {
-    /*"
-     The Swift members of this class, recovered from the symbol table of its image: the symbols whose
-     mangled name starts with the mangled name of the class are demangled and turned into declarations,
-     eg. "init(name: Swift.String)", "func run() -> ()", "var name: Swift.String { get set }".
-     Public members always have exported symbols (dispatch thunks and method descriptors), the internal
-     ones only when the image is not stripped.
-     "*/
-    
-    if(_cachedSortedSwiftMembers) return _cachedSortedSwiftMembers;
-    
-    NSMutableArray *ma = [NSMutableArray array];
-    self.cachedSortedSwiftMembers = ma;
-    
-    Class klass = NSClassFromString(classObjectName);
-    if(rtb_classHasSwiftMetadata(klass) == NO) return ma;
-    
-    rtb_loadSwiftRuntime();
-    if(rtb_swift_demangle == NULL) return ma;
-    
-    const void *metadata = (__bridge const void *)klass;
-    NSString *typeName = rtb_swiftTypeName(metadata);
-    NSString *mangledName = rtb_swiftMangledNominalTypeName(metadata);
-    if(typeName == nil || mangledName == nil) return ma;
-    
-    // the members of a generic class are declared for the unspecialized type, eg. Swift.ManagedBuffer.header.getter : A
-    typeName = rtb_stringByRemovingGenericArguments(typeName);
-    
-    // the metadata of a generic specialization is instantiated at runtime outside of any image,
-    // but its nominal type descriptor is in the image where the class was compiled
-    const void *imageBase = NULL;
-    Dl_info info;
-    const void *description = *(const void **)((const uint8_t *)metadata + 5 * sizeof(void *) + 24); // see TargetClassMetadata
-    if(description && dladdr(description, &info) != 0) imageBase = info.dli_fbase;
-    if(imageBase == NULL && dladdr(metadata, &info) != 0) imageBase = info.dli_fbase;
-    if(imageBase == NULL) return ma;
-    
-    NSArray *symbols = rtb_swiftSymbolNamesWithPrefix(imageBase, [@"$s" stringByAppendingString:mangledName]);
-    
-    NSMutableSet *seen = [NSMutableSet set];
-    NSMutableDictionary *propertiesByKey = [NSMutableDictionary dictionary]; // "var name: T" -> the most complete declaration
-    
-    for(NSString *symbol in symbols) {
-        char *demangled = rtb_swift_demangle([symbol UTF8String], [symbol lengthOfBytesUsingEncoding:NSUTF8StringEncoding], NULL, NULL, 0);
-        if(demangled == NULL) continue;
-        NSString *demangledSymbol = [NSString stringWithCString:demangled encoding:NSUTF8StringEncoding];
-        free(demangled);
-        
-        NSString *declaration = [[self class] swiftDeclarationForDemangledSymbol:demangledSymbol typeName:typeName];
-        if(declaration == nil) continue;
-        
-        // the accessors and the property descriptor of a property yield several declarations, keep the most complete one
-        NSRange accessorsRange = [declaration rangeOfString:@" { get"];
-        NSString *key = accessorsRange.location != NSNotFound ? [declaration substringToIndex:accessorsRange.location] : declaration;
-        if([key hasPrefix:@"var "] || [key hasPrefix:@"static var "] || [key hasPrefix:@"private var "] || [key hasPrefix:@"static private var "]) {
-            NSString *existing = propertiesByKey[key];
-            if(existing == nil || [declaration length] > [existing length]) propertiesByKey[key] = declaration; // "{ get set }" > "{ get }" > nothing
-            continue;
-        }
-        
-        if([seen containsObject:declaration]) continue;
-        [seen addObject:declaration];
-        [ma addObject:declaration];
+    if(_cachedSortedSwiftMembers == nil) {
+        self.cachedSortedSwiftMembers = [RTBSwift sortedMembersOfClass:NSClassFromString(classObjectName)];
     }
-    
-    [ma addObjectsFromArray:[propertiesByKey allValues]];
-    
-    // static members, then initializers, then the rest in alphabetical order, private members last
-    NSInteger (^rank)(NSString *) = ^NSInteger(NSString *d) {
-        if([d hasPrefix:@"static "]) return 0;
-        if([d hasPrefix:@"init"]) return 1;
-        if([d hasPrefix:@"private "]) return 3;
-        return 2;
-    };
-    [ma sortUsingComparator:^NSComparisonResult(NSString *d1, NSString *d2) {
-        NSInteger r1 = rank(d1), r2 = rank(d2);
-        if(r1 != r2) return r1 < r2 ? NSOrderedAscending : NSOrderedDescending;
-        return [d1 compare:d2];
-    }];
-    
-    return ma;
+    return _cachedSortedSwiftMembers;
 }
 
 #pragma mark BrowserNode protocol

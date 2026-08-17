@@ -75,10 +75,6 @@ static NSString *MODIFIER_LABEL = @"modifier";
 
 static NSString *IVAR_TAB = @"    ";
 
-// caution, these caches will be accessed by several thread in the same time when using the embedded web server or search from OS X RuntimeBrowser
-//static NSMutableDictionary *cachedDecodedTypesForEncodedTypes = nil;
-//static NSMutableDictionary *cachedDecodedTypesForEncodedTypesFlat = nil;
-
 #define isTypeSpecifier(fc) (fc=='r'||fc=='R'||fc=='n'||fc=='N'||fc=='o'||fc=='O'||fc=='V'||fc=='A'||fc=='j'||fc=='!')
 
 NSString * rtb_argTypeSpecifierForEncoding(char fc) {
@@ -168,19 +164,8 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
 }
 
 + (NSArray *)decodeTypes:(NSString *)encodedTypes flat:(BOOL)flat {
-
-//    if(cachedDecodedTypesForEncodedTypes == nil) {
-//        cachedDecodedTypesForEncodedTypes = [NSMutableDictionary dictionary];
-//    }
-//    
-//    if(cachedDecodedTypesForEncodedTypesFlat == nil) {
-//        cachedDecodedTypesForEncodedTypesFlat = [NSMutableDictionary dictionary];
-//    }
-//    
-//    NSMutableDictionary *cacheDictionary = flat ? cachedDecodedTypesForEncodedTypesFlat : cachedDecodedTypesForEncodedTypes;
-//    
-//    NSArray *cachedDecodedTypes = cacheDictionary[encodedTypes];
-//    if(cachedDecodedTypes) return cachedDecodedTypes;
+    
+    // no cache here: the decoders are used from several threads (search, embedded web server) and the results are cheap
     
     NSMutableArray *ma = [NSMutableArray array];
 
@@ -227,8 +212,6 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
             
         }
     }
-    
-//    cacheDictionary[encodedTypes] = ma;
     
     return ma;
 }
