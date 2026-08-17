@@ -608,6 +608,32 @@
     XCTAssertNil([RTBSwift declarationForDemangledSymbol:@"Module.Foo.notAFunction" typeName:t]);
 }
 
+- (void)testSearch {
+    RTBClass *cs = [RTBClass classStubWithClass:[RTBTestClass class]];
+    XCTAssertTrue([cs containsSearchString:@"RTBTestClass"]);
+    XCTAssertTrue([cs containsSearchString:@"testclass"]); // case insensitive
+    XCTAssertTrue([cs containsSearchString:@"_bitField"]); // ivar name
+    XCTAssertTrue([cs containsSearchString:@"fetchWithCompletion"]); // method
+    XCTAssertTrue([cs containsSearchString:@"classMethodWithInt128"]); // class method
+    XCTAssertTrue([cs containsSearchString:@"RTBTestProtocol"]); // protocol
+    XCTAssertTrue([cs containsSearchString:@"NSObject<NSCopying, NSCoding>"]); // ivar type
+    XCTAssertFalse([cs containsSearchString:@"zzzznotfound"]);
+    XCTAssertFalse([cs containsSearchString:@""]);
+    XCTAssertFalse([cs containsSearchString:@"RTBTestClass\n_bitField"]); // no match across tokens
+    
+    RTBClass *nsObject = [RTBClass classStubWithClass:[NSObject class]];
+    XCTAssertFalse([nsObject containsSearchString:@"zzzznotfound"]); // used to match everything for non-Swift classes
+    XCTAssertTrue([nsObject containsSearchString:@"nsobject"]);
+    
+    Class timerPublisher = NSClassFromString(@"_TtCE10FoundationCSo7NSTimer14TimerPublisher");
+    if(timerPublisher) {
+        RTBClass *swift = [RTBClass classStubWithClass:timerPublisher];
+        XCTAssertTrue([swift containsSearchString:@"TimerPublisher"]); // demangled name
+        XCTAssertTrue([swift containsSearchString:@"Swift.Optional<Swift.Double>"]); // Swift field type
+        XCTAssertFalse([swift containsSearchString:@"zzzznotfound"]);
+    }
+}
+
 - (void)testSortedAdoptedProtocolsNames {
     RTBProtocol *protocol = [RTBProtocol protocolStubWithProtocolName:@"NSMutableCopying"];
     XCTAssertEqualObjects([protocol sortedAdoptedProtocolsNames], @[]);

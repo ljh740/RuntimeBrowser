@@ -55,6 +55,7 @@
 @property (nonatomic) BOOL shouldSortSubclasses;
 @property (nonatomic) BOOL subclassesAreSorted;
 @property (nonatomic, retain) NSSet *cachedMethodsNamePartsLowercase;
+@property (nonatomic, retain) NSString *cachedSearchableText;
 @property (nonatomic, retain) NSString *cachedSwiftDemangledName;
 @property (nonatomic, retain) NSDictionary *cachedSwiftFieldsByName;
 @property (nonatomic, retain) NSArray *cachedSortedSwiftMembers;
@@ -225,15 +226,6 @@
     return decodedTypesSet;
 }
 
-- (NSMutableSet *)protocolsNamesLowercase {
-    NSSet *tokens = [self protocolsNames];
-    NSMutableSet *lowercaseTokens = [NSMutableSet set];
-    for(NSString *token in tokens) {
-        [lowercaseTokens addObject:[token lowercaseString]];
-    }
-    return lowercaseTokens;
-}
-
 - (NSMutableSet *)protocolsNamesWithSuperclassesProtocols:(BOOL)includeSuperclassesProtocols {
     
     Class class = NSClassFromString(classObjectName);
@@ -299,43 +291,29 @@
     return [[self displayName] compare:[otherCS displayName]];
 }
 
+- (NSString *)searchableText {
+    /*"
+     Everything the search looks into, lowercase, one token per line: the names of the class,
+     the ivars, the methods parts, the protocols and the ivar types. Built once per class.
+     "*/
+    if(_cachedSearchableText == nil) {
+        NSMutableArray *tokens = [NSMutableArray array];
+        [tokens addObject:classObjectName];
+        NSString *swiftName = [self swiftDemangledName];
+        if(swiftName) [tokens addObject:swiftName];
+        [tokens addObjectsFromArray:[[self iVarNames] allObjects]];
+        [tokens addObjectsFromArray:[[self methodsNamePartsLowercase] allObjects]];
+        [tokens addObjectsFromArray:[[self protocolsNames] allObjects]];
+        [tokens addObjectsFromArray:[[self iVarDecodedTypes] allObjects]];
+        self.cachedSearchableText = [[tokens componentsJoinedByString:@"\n"] lowercaseString];
+    }
+    return _cachedSearchableText;
+}
+
 - (BOOL)containsSearchString:(NSString *)searchString {
-    
     NSString *ss = [searchString lowercaseString];
-    
-    if([[classObjectName lowercaseString] rangeOfString:ss].location != NSNotFound) {
-        return YES;
-    }
-    
-    if([[[self swiftDemangledName] lowercaseString] rangeOfString:ss].location != NSNotFound) {
-        return YES;
-    }
-    
-    for(NSString *s in [self iVarNames]) {
-        if([[s lowercaseString] rangeOfString:ss].location != NSNotFound) {
-            return YES;
-        }
-    }
-    
-    for(NSString *s in [self methodsNamePartsLowercase]) {
-        if([s rangeOfString:ss].location != NSNotFound) {
-            return YES;
-        }
-    }
-    
-    for(NSString *s in [self protocolsNamesLowercase]) {
-        if([s rangeOfString:ss].location != NSNotFound) {
-            return YES;
-        }
-    }
-    
-    for(NSString *s in [self iVarDecodedTypes]) {
-        if([[s lowercaseString] rangeOfString:ss].location != NSNotFound) {
-            return YES;
-        }
-    }
-    
-    return NO;
+    if([ss length] == 0) return NO;
+    return [[self searchableText] rangeOfString:ss].location != NSNotFound; // no newline in ss, so no match across tokens
 }
 
 - (NSString *)declarationForIvar:(Ivar)ivar name:(NSString *)name {
