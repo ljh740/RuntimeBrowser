@@ -12,6 +12,7 @@
 #import "RTBListTVC.h"
 #import "RTBInfoVC.h"
 #import "RTBAppDelegate.h"
+#import "RTBBundleLoadGuard.h"
 
 static const NSUInteger kPublicFrameworks = 0;
 static const NSUInteger kPrivateFrameworks = 1;
@@ -61,6 +62,7 @@ static const NSUInteger kPrivateFrameworks = 1;
     NSString *name = [[[b bundlePath] lastPathComponent] stringByDeletingPathExtension];
     
     cell.frameworkName = name;
+    cell.skipped = [RTBBundleLoadGuard shouldSkipBundle:b];
     
     cell.accessoryType = [b isLoaded] ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
     return cell;
@@ -80,7 +82,9 @@ static const NSUInteger kPrivateFrameworks = 1;
     if([b isLoaded] == NO) {
         
         NSError *error = nil;
+        [RTBBundleLoadGuard willLoadBundle:b];
         BOOL success = [b loadAndReturnError:&error];
+        [RTBBundleLoadGuard didLoadBundle:b];
         
         if(success == NO || [b isLoaded] == NO) {
             NSString *alertTitle = [NSString stringWithFormat:@"Error: could not load %@.", name];
@@ -205,6 +209,11 @@ static const NSUInteger kPrivateFrameworks = 1;
             }
 #endif
             
+            if([RTBBundleLoadGuard shouldSkipBundle:b]) {
+                NSLog(@"-- skip %@, its loading crashed the app before", bundlePath);
+                continue;
+            }
+            
             count++;
             float percent = (float)count / (float)total;
             
@@ -219,6 +228,7 @@ static const NSUInteger kPrivateFrameworks = 1;
             @try {
                 //NSLog(@"-- %@", b);
                 NSError *loadError = nil;
+                [RTBBundleLoadGuard willLoadBundle:b]; // if the app does not survive, the next launch will know
                 BOOL success = [b loadAndReturnError:&loadError];
                 if(success == NO) {
                     //NSLog(@"-- couln't load %@", b);
@@ -227,6 +237,7 @@ static const NSUInteger kPrivateFrameworks = 1;
             } @catch (NSException * e) {
                 NSLog(@"-- exception while loading bundle %@", b);
             } @finally {
+                [RTBBundleLoadGuard didLoadBundle:b];
             }
         }
     }];

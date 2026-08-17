@@ -46,6 +46,7 @@
 		03740344179694CE005D1AFB /* RTBMyIP.m in Sources */ = {isa = PBXBuildFile; fileRef = 03740343179694CE005D1AFB /* RTBMyIP.m */; };
 		0374034D17969813005D1AFB /* RTBListTVC.m in Sources */ = {isa = PBXBuildFile; fileRef = 0374034A17969813005D1AFB /* RTBListTVC.m */; };
 		0374034E17969813005D1AFB /* RTBFrameworksTVC.m in Sources */ = {isa = PBXBuildFile; fileRef = 0374034C17969813005D1AFB /* RTBFrameworksTVC.m */; };
+		03B5E7F1E2A4C6D800000063 /* RTBBundleLoadGuard.m in Sources */ = {isa = PBXBuildFile; fileRef = 03B5E7F1E2A4C6D800000062 /* RTBBundleLoadGuard.m */; };
 		03740351179698CC005D1AFB /* RTBFrameworkCell.m in Sources */ = {isa = PBXBuildFile; fileRef = 03740350179698CC005D1AFB /* RTBFrameworkCell.m */; };
 		0379BB7C179D0B2D00F4B8BF /* NSString+SyntaxColoring.m in Sources */ = {isa = PBXBuildFile; fileRef = 0379BB7B179D0B2D00F4B8BF /* NSString+SyntaxColoring.m */; };
 		0379BB83179D0BCB00F4B8BF /* NSMutableAttributedString+RTB.m in Sources */ = {isa = PBXBuildFile; fileRef = 0379BB82179D0BCB00F4B8BF /* NSMutableAttributedString+RTB.m */; };
@@ -140,6 +141,8 @@
 		0374034A17969813005D1AFB /* RTBListTVC.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = RTBListTVC.m; sourceTree = "<group>"; };
 		0374034B17969813005D1AFB /* RTBFrameworksTVC.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RTBFrameworksTVC.h; sourceTree = "<group>"; };
 		0374034C17969813005D1AFB /* RTBFrameworksTVC.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = RTBFrameworksTVC.m; sourceTree = "<group>"; };
+		03B5E7F1E2A4C6D800000061 /* RTBBundleLoadGuard.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RTBBundleLoadGuard.h; sourceTree = "<group>"; };
+		03B5E7F1E2A4C6D800000062 /* RTBBundleLoadGuard.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = RTBBundleLoadGuard.m; sourceTree = "<group>"; };
 		0374034F179698CC005D1AFB /* RTBFrameworkCell.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RTBFrameworkCell.h; sourceTree = "<group>"; };
 		03740350179698CC005D1AFB /* RTBFrameworkCell.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = RTBFrameworkCell.m; sourceTree = "<group>"; };
 		0379BB7A179D0B2D00F4B8BF /* NSString+SyntaxColoring.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "NSString+SyntaxColoring.h"; sourceTree = "<group>"; };
@@ -349,6 +352,8 @@
 				0374034A17969813005D1AFB /* RTBListTVC.m */,
 				0374034B17969813005D1AFB /* RTBFrameworksTVC.h */,
 				0374034C17969813005D1AFB /* RTBFrameworksTVC.m */,
+				03B5E7F1E2A4C6D800000061 /* RTBBundleLoadGuard.h */,
+				03B5E7F1E2A4C6D800000062 /* RTBBundleLoadGuard.m */,
 				03FA8B751AEE3D2500D55C16 /* RTBProtocolsTVC.h */,
 				03FA8B761AEE3D2500D55C16 /* RTBProtocolsTVC.m */,
 				037402E717968502005D1AFB /* RTBClassCell.h */,
@@ -513,6 +518,7 @@
 				037402EC1796855F005D1AFB /* RTBClassDisplayVC.m in Sources */,
 				039CD1CE1AE8F94C001922CB /* RTBRuntimeHeader.m in Sources */,
 				0374034E17969813005D1AFB /* RTBFrameworksTVC.m in Sources */,
+				03B5E7F1E2A4C6D800000063 /* RTBBundleLoadGuard.m in Sources */,
 				03740351179698CC005D1AFB /* RTBFrameworkCell.m in Sources */,
 				0379BB83179D0BCB00F4B8BF /* NSMutableAttributedString+RTB.m in Sources */,
 				037402EF17968588005D1AFB /* RTBObjectsTVC.m in Sources */,

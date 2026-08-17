@@ -23,6 +23,11 @@
     return self.label.text;
 }
 
+- (void)setSkipped:(BOOL)skipped {
+    _skipped = skipped;
+    self.label.enabled = !skipped;
+}
+
 /*
 - (id)initWithFrame:(CGRect)frame reuseIdentifier:(NSString *)reuseIdentifier {
 	if (self = [super initWithFrame:frame reuseIdentifier:reuseIdentifier]) {
