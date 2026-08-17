@@ -29,6 +29,9 @@ typedef NS_ENUM(NSInteger, RTBSwiftTypeKind) {
 // The Swift declaration of the type, as a header: members, cases, conformances, ...
 - (NSString *)declaration;
 
+// YES if the declaration contains the string, case insensitive
+- (BOOL)containsSearchString:(NSString *)searchString;
+
 - (NSComparisonResult)compare:(RTBSwiftType *)other;
 
 // BrowserNode protocol, for the macOS browser
@@ -43,6 +46,9 @@ typedef NS_ENUM(NSInteger, RTBSwiftTypeKind) {
 
 // YES if the image has Swift type metadata. Cheap, unlike typesInImageAtPath: which reads it.
 + (BOOL)imageAtPathHasSwiftTypes:(NSString *)imagePath;
+
+// The paths of the loaded images with Swift type metadata
++ (NSArray *)imagePathsWithSwiftTypes;
 
 // The structs, enums and protocols of an image, sorted by name. The classes are in the class browser.
 + (NSArray *)typesInImageAtPath:(NSString *)imagePath;

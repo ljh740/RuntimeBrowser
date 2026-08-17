@@ -55,6 +55,14 @@ char **stringArrayFromNSArray(NSArray *a) {
     }
 }
 
++ (NSArray *)swiftKeywords {
+    // not "in", which appears in the names of the types declared in extensions, eg. (extension in Foundation):Swift.String.Encoding
+    return @[@"associatedtype", @"fileprivate", @"nonmutating", @"convenience", @"typealias", @"extension", @"rethrows", @"protocol", @"required",
+             @"override", @"mutating", @"subscript", @"internal", @"private", @"unowned", @"dynamic", @"public", @"struct", @"static", @"throws",
+             @"indirect", @"repeat", @"async", @"class", @"final", @"where", @"inout", @"deinit", @"init", @"func", @"case", @"enum", @"some",
+             @"weak", @"lazy", @"each", @"Self", @"self", @"var", @"let", @"get", @"set", @"any"];
+}
+
 - (NSAttributedString *)colorizeWithKeywords:(NSArray *)keywords classes:(NSArray *)classes colorize:(BOOL)colorize {
     
     // dynamic colors, so that the text is readable in dark mode too

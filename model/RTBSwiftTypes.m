@@ -701,8 +701,9 @@ static NSString *rtb_mangledDescriptorName(const RTBImage *image, const uint32_t
 @property (nonatomic) const uint32_t *descriptor;
 @property (nonatomic) RTBImage image;
 @property (nonatomic) const void *metadata;         // non-generic structs, enums and classes
-@property (nonatomic, retain) NSString *cachedMangledName; // nominal, for the symbols
-@property (nonatomic, retain) NSString *cachedDeclaration;
+@property (retain) NSString *cachedMangledName;    // nominal, for the symbols. Atomic: the search reads the declarations in the background.
+@property (retain) NSString *cachedDeclaration;
+@property (retain) NSString *cachedSearchableText; // the declaration, lowercase, without the header comment
 @end
 
 @implementation RTBSwiftType
@@ -882,6 +883,18 @@ static NSString *rtb_mangledDescriptorName(const RTBImage *image, const uint32_t
     return header;
 }
 
+- (BOOL)containsSearchString:(NSString *)searchString {
+    NSString *ss = [searchString lowercaseString];
+    if([ss length] == 0) return NO;
+    if(_cachedSearchableText == nil) {
+        NSString *declaration = [self declaration];
+        NSRange end = [declaration rangeOfString:@" */\n"];
+        if(end.location != NSNotFound) declaration = [declaration substringFromIndex:end.location + end.length];
+        self.cachedSearchableText = [declaration lowercaseString];
+    }
+    return [_cachedSearchableText rangeOfString:ss].location != NSNotFound;
+}
+
 #pragma mark BrowserNode protocol
 
 - (NSArray *)children {
@@ -974,11 +987,24 @@ static NSString *rtb_mangledDescriptorName(const RTBImage *image, const uint32_t
     return NULL;
 }
 
-+ (BOOL)imageAtPathHasSwiftTypes:(NSString *)imagePath {
-    const struct mach_header *header = [self headerOfImageAtPath:imagePath];
++ (BOOL)imageHasSwiftTypes:(const struct mach_header *)header {
     if(header == NULL) return NO;
     unsigned long size = 0;
     return getsectiondata((const rtb_mach_header *)header, "__TEXT", "__swift5_types", &size) != NULL || getsectiondata((const rtb_mach_header *)header, "__TEXT", "__swift5_protos", &size) != NULL;
+}
+
++ (BOOL)imageAtPathHasSwiftTypes:(NSString *)imagePath {
+    return [self imageHasSwiftTypes:[self headerOfImageAtPath:imagePath]];
+}
+
++ (NSArray *)imagePathsWithSwiftTypes {
+    NSMutableArray *paths = [NSMutableArray array];
+    for(uint32_t i = 0; i < _dyld_image_count(); i++) {
+        const char *name = _dyld_get_image_name(i);
+        if(name && [self imageHasSwiftTypes:_dyld_get_image_header(i)]) [paths addObject:[NSString stringWithUTF8String:name]];
+    }
+    [paths sortUsingSelector:@selector(compare:)];
+    return paths;
 }
 
 + (NSArray *)typesInImageAtPath:(NSString *)imagePath {

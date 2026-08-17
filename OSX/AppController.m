@@ -241,12 +241,31 @@
                 }
             }
 
+            // the Swift structs, enums and protocols, as .swift files in a Swift folder
+            NSUInteger swiftTypesSaved = 0;
+            NSURL *swiftDirURL = [dirURL URLByAppendingPathComponent:@"Swift"];
+            for(NSString *imagePath in [RTBSwiftTypes imagePathsWithSwiftTypes]) {
+                NSArray *types = [RTBSwiftTypes typesInImageAtPath:imagePath];
+                if([types count] == 0) continue;
+                [[NSFileManager defaultManager] createDirectoryAtURL:swiftDirURL withIntermediateDirectories:YES attributes:nil error:nil];
+                for(RTBSwiftType *type in types) {
+                    NSString *filename = [[type.name stringByReplacingOccurrencesOfString:@"/" withString:@"_"] stringByAppendingPathExtension:@"swift"];
+                    NSError *error = nil;
+                    if([[type declaration] writeToURL:[swiftDirURL URLByAppendingPathComponent:filename] atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+                        ++swiftTypesSaved;
+                    } else {
+                        ++failed;
+                        NSLog(@"-- error, could not save Swift type %@, error %@", type.name, error);
+                    }
+                }
+            }
+
             [[NSProcessInfo processInfo] enableSuddenTermination];
 
             [[NSOperationQueue mainQueue] addOperationWithBlock:^{
                 NSAlert *alert = [[NSAlert alloc] init];
                 alert.messageText = @"Save All Finished";
-                alert.informativeText = [NSString stringWithFormat:@"Done saving all classes into %@. \n  %lu classes saved. \n  %lu classes failed to save.", [dirURL path], (unsigned long)saved, (unsigned long)failed];
+                alert.informativeText = [NSString stringWithFormat:@"Done saving all classes into %@. \n  %lu classes saved. \n  %lu Swift types saved. \n  %lu failed to save.", [dirURL path], (unsigned long)saved, (unsigned long)swiftTypesSaved, (unsigned long)failed];
                 [alert addButtonWithTitle:@"OK"];
                 [alert beginSheetModalForWindow:strongSelf.mainWindow completionHandler:nil];
             }];
@@ -322,7 +341,25 @@
     [self changeViewTypeTo:viewType];
 }
 
-- (void)foundMatchingClass:(RTBClass *)classStub forSearchString:(NSString *)searchString {
+// the classes first, then the Swift types
+static NSComparisonResult rtb_compareSearchResults(id a, id b, void *context) {
+    BOOL aIsClass = [a isKindOfClass:[RTBClass class]], bIsClass = [b isKindOfClass:[RTBClass class]];
+    if(aIsClass != bIsClass) return aIsClass ? NSOrderedAscending : NSOrderedDescending;
+    return [a compare:b];
+}
+
+- (NSString *)searchResultsTitleForString:(NSString *)searchString {
+    NSUInteger classes = 0, swiftTypes = 0;
+    for(id result in self.searchResults) {
+        if([result isKindOfClass:[RTBClass class]]) classes++; else swiftTypes++;
+    }
+    NSString *title = [NSString stringWithFormat:@"\"%@\": %lu classes", searchString, (unsigned long)classes];
+    if(swiftTypes > 0) title = [title stringByAppendingFormat:@", %lu Swift types", (unsigned long)swiftTypes];
+    return title;
+}
+
+// item is a RTBClass or a RTBSwiftType
+- (void)foundMatchingItem:(id)item forSearchString:(NSString *)searchString {
     
     NSString *searchStringLowercase = [searchString lowercaseString];
     
@@ -334,17 +371,17 @@
         _cachedClassStubsMatchingForSearchStringLowercase[searchStringLowercase] = [NSMutableSet set];
     }
     
-    [_cachedClassStubsMatchingForSearchStringLowercase[searchStringLowercase] addObject:classStub];
+    [_cachedClassStubsMatchingForSearchStringLowercase[searchStringLowercase] addObject:item];
     
     /**/
     
-    if([self.searchResults containsObject:classStub]) return;
+    if([self.searchResults containsObject:item]) return;
     
-    [self.searchResults addObject:classStub];
+    [self.searchResults addObject:item];
     
     self.searchResultsNode.children = self.searchResults;
     
-    NSString *rootTitle = [NSString stringWithFormat:@"\"%@\": %lu classes, searching...", searchString, (unsigned long)[self.searchResults count]];
+    NSString *rootTitle = [[self searchResultsTitleForString:searchString] stringByAppendingString:@", searching..."];
     [self.classBrowser setTitle:rootTitle ofColumn:0];
     
     [self.classBrowser loadColumnZero];
@@ -357,10 +394,9 @@
         return;
     }
     
-    NSLog(@"-- finished searching for %@, %lul results", searchString, (unsigned long)[self.searchResults count]);
+    NSLog(@"-- finished searching for %@, %lu results", searchString, (unsigned long)[self.searchResults count]);
     
-    NSString *rootTitle = [NSString stringWithFormat:@"\"%@\": %lu classes", searchString, (unsigned long)[self.searchResults count]];
-    [self.classBrowser setTitle:rootTitle ofColumn:0];
+    [self.classBrowser setTitle:[self searchResultsTitleForString:searchString] ofColumn:0];
 }
 
 - (IBAction)search:(id)sender {
@@ -393,7 +429,7 @@
 
         NSSet *set = _cachedClassStubsMatchingForSearchStringLowercase[searchStringLowercase];
         NSMutableArray *ma = [[set allObjects] mutableCopy];
-        [ma sortUsingSelector:@selector(compare:)];
+        [ma sortUsingFunction:rtb_compareSearchResults context:NULL];
 
         self.searchResults = ma;
         self.searchResultsNode.children = self.searchResults;
@@ -419,10 +455,7 @@
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if(strongSelf == nil) return;
 
-        for (RTBClass *classStub in classStubs) {
-
-            if(![classStub containsSearchString:searchString]) continue;
-
+        void (^found)(id) = ^(id item) {
             [[NSOperationQueue mainQueue] addOperationWithBlock:^{
 
                 __strong typeof(weakSelf) innerSelf = weakSelf;
@@ -433,8 +466,21 @@
                     return;
                 }
 
-                [innerSelf foundMatchingClass:classStub forSearchString:searchString];
+                [innerSelf foundMatchingItem:item forSearchString:searchString];
             }];
+        };
+
+        for (RTBClass *classStub in classStubs) {
+            if([strongOp isCancelled]) return;
+            if([classStub containsSearchString:searchString]) found(classStub);
+        }
+
+        // the Swift structs, enums and protocols, image by image; their declarations are built on the first search
+        for (NSString *imagePath in [RTBSwiftTypes imagePathsWithSwiftTypes]) {
+            for (RTBSwiftType *type in [RTBSwiftTypes typesInImageAtPath:imagePath]) {
+                if([strongOp isCancelled]) return;
+                if([type containsSearchString:searchString]) found(type);
+            }
         }
     }];
 
@@ -550,7 +596,7 @@
         [_headerTextView setString:@""];
         
         NSString *declaration = [(RTBSwiftType *)item declaration];
-        NSAttributedString *attributedString = [declaration colorizeWithKeywords:self.keywords classes:self.classes colorize:colorize];
+        NSAttributedString *attributedString = [declaration colorizeWithKeywords:[NSString swiftKeywords] classes:self.classes colorize:colorize];
         [[_headerTextView textStorage] setAttributedString:attributedString];
         
         return;

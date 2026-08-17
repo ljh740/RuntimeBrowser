@@ -14,6 +14,10 @@
 
 @interface NSString (SyntaxColoring)
 
+// keywords and classes are colored when they appear as whole words, comments and @directives always
 - (NSAttributedString *)colorizeWithKeywords:(NSArray *)keywords classes:(NSArray *)classes colorize:(BOOL)colorize;
+
+// The keywords of the Swift declarations, see RTBSwiftTypes.h
++ (NSArray *)swiftKeywords;
 
 @end
