@@ -319,7 +319,11 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
             rs = @"SEL";
             break;
         case 'c' :
-            rs = @"BOOL"; //@"char";
+#if OBJC_BOOL_IS_BOOL
+            rs = @"char"; // BOOL is bool on this platform, a signed char is a char
+#else
+            rs = @"BOOL"; // BOOL is a signed char on this platform, and far more common than char
+#endif
             break;
         case 'C' :
             rs = @"unsigned char";
@@ -364,7 +368,11 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
             rs = @"unsigned __int128";
             break;
         case 'B' :
+#if OBJC_BOOL_IS_BOOL
+            rs = @"BOOL"; // arm64: BOOL is bool
+#else
             rs = @"bool";
+#endif
             break;
         case 'v' :
             rs = @"void";
@@ -524,7 +532,9 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
         NSDictionary *innerTypeInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:NO inLine:inLine inParam:inParam spaceAfter:spaceAfter]; // Get the type
         
         modifierS = [innerTypeInfo objectForKey:MODIFIER_LABEL];  // and it's modifier
-        typeS = [[innerTypeInfo objectForKey:TYPE_LABEL] stringByAppendingString:@"*"];  // make type a pointer
+        NSString *innerType = [innerTypeInfo objectForKey:TYPE_LABEL];
+        BOOL needsSpace = [innerType length] > 0 && [innerType hasSuffix:@" "] == NO && [innerType hasSuffix:@"*"] == NO; // void * and void **, int (**)()
+        typeS = [innerType stringByAppendingString:(needsSpace ? @" *" : @"*")];  // make type a pointer
     }
     
     return [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];

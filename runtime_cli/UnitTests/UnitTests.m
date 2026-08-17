@@ -19,6 +19,15 @@
 
 #define UNIT_TESTS 1
 
+// BOOL is bool on arm64 and a signed char elsewhere, the decoder follows the platform
+#if OBJC_BOOL_IS_BOOL
+#define RTB_BOOL_TYPE @"BOOL"
+#define RTB_CHAR_TYPE @"char"
+#else
+#define RTB_BOOL_TYPE @"bool"
+#define RTB_CHAR_TYPE @"BOOL"
+#endif
+
 #pragma mark - Fixtures for the modern Objective-C runtime features
 
 @protocol RTBTestProtocol <NSObject>
@@ -156,7 +165,7 @@
 }
 
 - (void)testBasicTypes {
-    XCTAssertEqualObjects([self decodeFlatCType:"c"], @"BOOL", @"");
+    XCTAssertEqualObjects([self decodeFlatCType:"c"], RTB_CHAR_TYPE, @"");
     XCTAssertEqualObjects([self decodeFlatCType:"C"], @"unsigned char", @"");
     XCTAssertEqualObjects([self decodeFlatCType:"s"], @"short", @"");
     XCTAssertEqualObjects([self decodeFlatCType:"S"], @"unsigned short", @"");
@@ -176,9 +185,9 @@
 }
 
 - (void)testComplicatedTypes {
-    XCTAssertEqualObjects([self decodeFlatCType:"^f"], @"float*", @"");
-    XCTAssertEqualObjects([self decodeFlatCType:"^v"], @"void*", @"");
-    XCTAssertEqualObjects([self decodeFlatCType:"^@"], @"id*", @"");
+    XCTAssertEqualObjects([self decodeFlatCType:"^f"], @"float *", @"");
+    XCTAssertEqualObjects([self decodeFlatCType:"^v"], @"void *", @"");
+    XCTAssertEqualObjects([self decodeFlatCType:"^@"], @"id *", @"");
     
     XCTAssertEqualObjects([self decodeIvarType:"[10i]"], @"int ", @"");
     XCTAssertEqualObjects([self decodeIvarModifier:"[10i]"], @"[10]", @"");
@@ -200,10 +209,10 @@
 
     XCTAssertEqual(5, [types count]);
     
-    XCTAssertEqualObjects(types[0], @"BOOL");
+    XCTAssertEqualObjects(types[0], RTB_CHAR_TYPE);
     XCTAssertEqualObjects(types[1], @"id");
     XCTAssertEqualObjects(types[2], @"SEL");
-    XCTAssertEqualObjects(types[3], @"struct _colordef { unsigned int x1; unsigned int x2; struct _rgbquad { unsigned int x_3_1_1 : 8; unsigned int x_3_1_2 : 8; unsigned int x_3_1_3 : 8; unsigned int x_3_1_4 : 8; } x3; }*");
+    XCTAssertEqualObjects(types[3], @"struct _colordef { unsigned int x1; unsigned int x2; struct _rgbquad { unsigned int x_3_1_1 : 8; unsigned int x_3_1_2 : 8; unsigned int x_3_1_3 : 8; unsigned int x_3_1_4 : 8; } x3; } *");
     XCTAssertEqualObjects(types[4], @"NSString *");
 }
 
@@ -225,16 +234,16 @@
 - (void)testExtendedEncodingForBlocks {
     XCTAssertEqualObjects([self decodeFlatCType:"@?<v@?>"], @"void (^)(void)");
     XCTAssertEqualObjects([self decodeFlatCType:"@?<v@?q>"], @"void (^)(long long)");
-    XCTAssertEqualObjects([self decodeFlatCType:"@?<B@?@\"NSMutableDictionary\"@\"NSMutableArray\">"], @"bool (^)(NSMutableDictionary *, NSMutableArray *)");
-    XCTAssertEqualObjects([self decodeFlatCType:"@?<v@?@?<B@?@\"NSString\">>"], @"void (^)(bool (^)(NSString *))"); // nested blocks
-    XCTAssertEqualObjects([self decodeFlatCType:"@?<v@?^@>"], @"void (^)(id*)");
+    XCTAssertEqualObjects([self decodeFlatCType:"@?<B@?@\"NSMutableDictionary\"@\"NSMutableArray\">"], ([NSString stringWithFormat:@"%@ (^)(NSMutableDictionary *, NSMutableArray *)", RTB_BOOL_TYPE]));
+    XCTAssertEqualObjects([self decodeFlatCType:"@?<v@?@?<B@?@\"NSString\">>"], ([NSString stringWithFormat:@"void (^)(%@ (^)(NSString *))", RTB_BOOL_TYPE])); // nested blocks
+    XCTAssertEqualObjects([self decodeFlatCType:"@?<v@?^@>"], @"void (^)(id *)");
     XCTAssertEqualObjects([self decodeFlatCType:"@?"], @"id"); // no signature
     XCTAssertEqualObjects([self decodeFlatCType:"@?<v@?"], @"id"); // unbalanced signature
     
     NSArray *types = [RTBTypeDecoder decodeTypes:@"v40@0:8@?<v@?@?<v@?@@\"NSError\">>16@?<B@?@\"NSError\">24@?<v@?@@\"NSError\">32" flat:YES];
     XCTAssertEqual(6, [types count]);
     XCTAssertEqualObjects(types[3], @"void (^)(void (^)(id, NSError *))");
-    XCTAssertEqualObjects(types[4], @"bool (^)(NSError *)");
+    XCTAssertEqualObjects(types[4], ([NSString stringWithFormat:@"%@ (^)(NSError *)", RTB_BOOL_TYPE]));
     XCTAssertEqualObjects(types[5], @"void (^)(id, NSError *)");
 }
 
@@ -294,7 +303,7 @@
 - (void)testCPlusPlusTemplateNames {
     XCTAssertEqualObjects([self decodeFlatCType:"{vector<CGPoint, std::allocator<CGPoint>>=^{CGPoint}^{CGPoint}}"], @"struct vector<CGPoint, std::allocator<CGPoint>> { struct CGPoint {} *x1; struct CGPoint {} *x2; }");
     XCTAssertEqualObjects([self decodeFlatCType:"{function<bool (unsigned long long)>={__value_func<bool (unsigned long long)>={type=[24C]}^v}}"], @"struct function<bool (unsigned long long)> { struct __value_func<bool (unsigned long long)> { struct type { unsigned char x_1_2_1[24]; } x_1_1_1; void *x_1_1_2; } x1; }");
-    XCTAssertEqualObjects([self decodeFlatCType:"^{vector<int, std::allocator<int>>}"], @"struct vector<int, std::allocator<int>> {}*");
+    XCTAssertEqualObjects([self decodeFlatCType:"^{vector<int, std::allocator<int>>}"], @"struct vector<int, std::allocator<int>> {} *");
     XCTAssertEqualObjects([self decodeFlatCType:"(function<void ()>)"], @"union function<void ()> {}");
     XCTAssertEqualObjects([self decodeFlatCType:"{deque<id, std::allocator<id>>=\"__start_\"Q\"__size_\"{__compressed_pair<unsigned long, std::allocator<id>>=\"__value_\"Q}}"], @"struct deque<id, std::allocator<id>> { unsigned long long __start_; struct __compressed_pair<unsigned long, std::allocator<id>> { unsigned long long __value_; } __size_; }");
 }
@@ -304,7 +313,7 @@
     XCTAssertEqualObjects([self decodeFlatCType:"[5i]"], @"int[5]");
     XCTAssertEqualObjects([self decodeFlatCType:"b3"], @"unsigned int : 3");
     NSArray *types = [RTBTypeDecoder decodeTypes:@"r*40@0:8r^v16^i24^?32" flat:YES];
-    XCTAssertEqualObjects(types, (@[@"const char *", @"id", @"SEL", @"const void*", @"int*", @"int (*)()"]));
+    XCTAssertEqualObjects(types, (@[@"const char *", @"id", @"SEL", @"const void *", @"int *", @"int (*)()"]));
 }
 
 - (void)testIvarDeclarations {
@@ -343,7 +352,7 @@
     XCTAssertEqualObjects([self propertyDescription:@"T@\"<NSObject>\",W,N,V_delegate"], @"@property (nonatomic, weak) id <NSObject> p;"); // W is __weak
     XCTAssertEqualObjects([self propertyDescription:@"T@\"NSObject<NSCopying><NSCoding>\",&,N"], @"@property (nonatomic, retain) NSObject<NSCopying, NSCoding> *p;");
     XCTAssertEqualObjects([self propertyDescription:@"Tq,R,D,N"], @"@property (nonatomic, readonly) long long p;"); // D is @dynamic
-    XCTAssertEqualObjects([self propertyDescription:@"TB,R,N,GisEnabled"], @"@property (getter=isEnabled, nonatomic, readonly) bool p;");
+    XCTAssertEqualObjects([self propertyDescription:@"TB,R,N,GisEnabled"], ([NSString stringWithFormat:@"@property (getter=isEnabled, nonatomic, readonly) %@ p;", RTB_BOOL_TYPE]));
     XCTAssertEqualObjects([self propertyDescription:@"T@\"NSString\",?,R,C"], @"@property (readonly, copy) NSString *p;"); // ? is @optional in a protocol
     XCTAssertEqualObjects([self propertyDescription:@"T@?,C,N,V_handler"], @"@property (nonatomic, copy) id p;"); // block
     XCTAssertEqualObjects([self propertyDescription:@"T,N,V_vec"], @"@property (nonatomic) void /* ? */ p;"); // vector types are not encoded
@@ -420,7 +429,7 @@
 
 - (void)testClassHeaderProperties {
     NSString *header = [self headerForTestClass];
-    [self assertHeader:header containsLine:@"@property (class, getter=isEnabled, nonatomic, readonly) bool enabled;"];
+    [self assertHeader:header containsLine:[NSString stringWithFormat:@"@property (class, getter=isEnabled, nonatomic, readonly) %@ enabled;", RTB_BOOL_TYPE]];
     [self assertHeader:header containsLine:@"@property (class, nonatomic, readonly) NSString *requiredClassProperty;"];
     [self assertHeader:header containsLine:@"@property (class, nonatomic, readonly) void /* ? */ classVector;"];
     [self assertHeader:header containsLine:@"@property (nonatomic, readonly) long long requiredInstanceProperty;"];
@@ -443,7 +452,7 @@
     [self assertHeader:header containsLine:@"+ (void /* ? */)classVector;"]; // empty return type, 16@0:8
     [self assertHeader:header containsLine:@"- (void)fetchWithCompletion:(id)arg1;"]; // no block signature in method lists
     [self assertHeader:header containsLine:@"- (id)qualifiedObject:(id)arg1;"];
-    [self assertHeader:header containsLine:@"- (const char *)constChar:(const void*)arg1 ptr:(int*)arg2 fn:(int (*)())arg3;"];
+    [self assertHeader:header containsLine:@"- (const char *)constChar:(const void *)arg1 ptr:(int *)arg2 fn:(int (*)())arg3;"];
     [self assertHeader:header containsLine:@"- (void)vector:(void *)arg1; // needs 1 arg types, found 0: "]; // the colon is kept
     XCTAssertTrue([header containsString:@"- (void)structArg:(struct CGRect {"]);
     XCTAssertFalse([header containsString:@"Warning"]);
@@ -459,13 +468,13 @@
     // properties, the '?' attribute tells the optional ones
     [self assertHeader:header containsLine:@"@property (class, nonatomic, readonly) NSString *requiredClassProperty;"];
     [self assertHeader:header containsLine:@"@property (nonatomic, readonly) long long requiredInstanceProperty;"];
-    [self assertHeader:header containsLine:@"@property (class, getter=isEnabled, nonatomic, readonly) bool enabled;"];
+    [self assertHeader:header containsLine:[NSString stringWithFormat:@"@property (class, getter=isEnabled, nonatomic, readonly) %@ enabled;", RTB_BOOL_TYPE]];
     [self assertHeader:header containsLine:@"@property (nonatomic, weak) id <NSObject> optionalWeakProperty;"];
     
     // extended type encodings have class names and block signatures
     [self assertHeader:header containsLine:@"+ (id)classMethodWithInt128:(__int128)arg1;"];
     [self assertHeader:header containsLine:@"- (void)fetchWithCompletion:(void (^)(NSData *, NSError *))arg1;"];
-    [self assertHeader:header containsLine:@"- (void)nestedBlock:(void (^)(bool (^)(NSString *)))arg1;"];
+    [self assertHeader:header containsLine:[NSString stringWithFormat:@"- (void)nestedBlock:(void (^)(%@ (^)(NSString *)))arg1;", RTB_BOOL_TYPE]];
     [self assertHeader:header containsLine:@"- (id <NSCopying, NSCoding>)qualifiedObject:(NSObject<NSCopying> *)arg1;"];
     [self assertHeader:header containsLine:@"- (void)vector:(void *)arg1; // needs 1 arg types, found 0: "];
     
@@ -473,7 +482,8 @@
     NSRange optionalRange = [header rangeOfString:@"@optional"];
     NSRange requiredClassPropertyRange = [header rangeOfString:@"requiredClassProperty;"];
     NSRange optionalPropertyRange = [header rangeOfString:@"optionalWeakProperty;"];
-    NSRange enabledRange = [header rangeOfString:@"bool enabled;"];
+    NSRange enabledRange = [header rangeOfString:[NSString stringWithFormat:@"%@ enabled;", RTB_BOOL_TYPE]];
+    XCTAssertTrue(enabledRange.location != NSNotFound);
     XCTAssertTrue(requiredRange.location < requiredClassPropertyRange.location);
     XCTAssertTrue(requiredClassPropertyRange.location < optionalRange.location);
     XCTAssertTrue(optionalRange.location < optionalPropertyRange.location);
