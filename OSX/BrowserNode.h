@@ -21,3 +21,12 @@
 - (NSImage *)icon;
 
 @end
+
+// The Swift structs, enums and protocols of an image, listed under its classes in the Images view. Read when first displayed.
+@interface SwiftTypesNode : BrowserNode
+
+@property (nonatomic, strong) NSString *imagePath;
+
++ (SwiftTypesNode *)nodeForImageAtPath:(NSString *)imagePath;
+
+@end

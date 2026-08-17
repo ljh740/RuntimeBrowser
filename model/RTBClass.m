@@ -37,6 +37,7 @@
 #import "RTBRuntimeHeader.h"
 #import "RTBMethod.h"
 #import "RTBSwift.h"
+#import "RTBSwiftTypes.h"
 #import "dlfcn.h"
 
 #import "RTBTypeDecoder.h"
@@ -613,6 +614,10 @@
         self.cachedSortedSwiftMembers = [RTBSwift sortedMembersOfClass:NSClassFromString(classObjectName)];
     }
     return _cachedSortedSwiftMembers;
+}
+
+- (NSArray *)sortedSwiftConformances {
+    return [RTBSwiftTypes conformancesOfClass:NSClassFromString(classObjectName)]; // RTBSwiftTypes caches the conformances of all the images
 }
 
 #pragma mark BrowserNode protocol

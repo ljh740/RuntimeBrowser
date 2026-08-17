@@ -402,6 +402,16 @@ OBJC_EXPORT const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL is
         [header appendString:@"\n"];
     }
     
+    // Swift protocol conformances, of Swift classes as well as of Objective-C classes with Swift extensions
+    NSArray *swiftConformances = [class sortedSwiftConformances];
+    if([swiftConformances count] > 0) {
+        [header appendString:@"// Swift conformances, from the conformance records of the loaded images\n\n"];
+        for(NSString *protocolName in swiftConformances) {
+            [header appendFormat:@"%@\n", [RTBSwift displayedTypeNamesInString:protocolName]];
+        }
+        [header appendString:@"\n"];
+    }
+    
     // Swift members, only the @objc ones are visible in the Objective-C runtime
     NSArray *swiftMembers = [class sortedSwiftMembers];
     if([swiftMembers count] > 0) {

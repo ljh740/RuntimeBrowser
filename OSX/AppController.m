@@ -41,6 +41,7 @@
 #import "RTBClass.h"
 #import "RTBRuntimeHeader.h"
 #import "RTBProtocol.h"
+#import "RTBSwiftTypes.h"
 
 @interface AppController ()
 @property (nonatomic, strong) NSMutableDictionary *cachedClassStubsMatchingForSearchStringLowercase;
@@ -140,6 +141,7 @@
     NSIndexPath *ip = [_classBrowser selectionIndexPath];
     id item = ip ? [_classBrowser itemAtIndexPath:ip] : nil;
     if([item isKindOfClass:[RTBClass class]]) return [(RTBClass *)item classObjectName];
+    if([item isKindOfClass:[RTBSwiftType class]]) return [(RTBSwiftType *)item name];
     return [[_classBrowser selectedCell] stringValue];
 }
 
@@ -543,6 +545,15 @@
         [[_headerTextView textStorage] setAttributedString:attributedString];
 
         return;
+    } else if ([item isKindOfClass:[RTBSwiftType class]]) {
+        [_label setStringValue:[item nodeName]];
+        [_headerTextView setString:@""];
+        
+        NSString *declaration = [(RTBSwiftType *)item declaration];
+        NSAttributedString *attributedString = [declaration colorizeWithKeywords:self.keywords classes:self.classes colorize:colorize];
+        [[_headerTextView textStorage] setAttributedString:attributedString];
+        
+        return;
     }
     
     NSString *classname = [item isKindOfClass:[RTBClass class]] ? [(RTBClass *)item classObjectName] : [[sender selectedCell] stringValue];
@@ -610,7 +621,7 @@
     switch([self currentViewType]) {
         case RBBrowserViewTypeList:      return YES;
         case RBBrowserViewTypeTree:      return [[item children] count] == 0;
-        case RBBrowserViewTypeImages:    return [item isKindOfClass:[RTBClass class]];
+        case RBBrowserViewTypeImages:    return [item isKindOfClass:[RTBClass class]] || [item isKindOfClass:[RTBSwiftType class]];
         case RBBrowserViewTypeProtocols: return [item isKindOfClass:[RTBProtocol class]] ? [[item children] count] == 0 : YES;
     }
     return YES;
@@ -687,6 +698,7 @@
             }
             
             for(RTBClass *cs in [bn children]) {
+                if([cs isKindOfClass:[RTBClass class]] == NO) continue; // eg. the Swift types of an image
                 
                 NSString *filename = [[cs classObjectName] stringByAppendingPathExtension:@"h"];
                 NSString *path = [directoryPath stringByAppendingPathComponent:filename];

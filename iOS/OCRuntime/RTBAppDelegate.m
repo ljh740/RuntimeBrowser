@@ -20,6 +20,7 @@
 #import "RTBRuntimeHeader.h"
 #import "RTBClass.h"
 #import "RTBProtocol.h"
+#import "RTBSwiftTypes.h"
 #import "RTBMyIP.h"
 #import "RTBRuntime.h"
 #import "RTBObjectsTVC.h"
@@ -111,6 +112,31 @@
         link = [NSString stringWithFormat:@"%@ <span style=\"color:gray\">%@</span>", link, [self htmlEscapedString:displayName]];
     }
     return link;
+}
+
+// the Swift structs, enums and protocols of an image, linked to their declarations, eg. /tree/Frameworks/Foundation.framework/Foundation.Date.swift
+- (NSString *)swiftTypesListForImageAtPath:(NSString *)imagePath pathPrefix:(NSString *)pathPrefix {
+    NSArray *types = [RTBSwiftTypes typesInImageAtPath:imagePath];
+    if([types count] == 0) return @"";
+    if([pathPrefix hasSuffix:@"/"] == NO) pathPrefix = [pathPrefix stringByAppendingString:@"/"];
+    NSMutableString *ms = [NSMutableString string];
+    [ms appendFormat:@"\n%@ Swift types (structs, enums and protocols; the Swift classes are listed with the classes)\n\n", @([types count])];
+    for(RTBSwiftType *type in types) {
+        NSString *escapedName = [type.name stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
+        [ms appendFormat:@"<A HREF=\"%@%@.swift\">%@</A>\n", pathPrefix, escapedName, [self htmlEscapedString:[type nodeName]]];
+    }
+    return ms;
+}
+
+- (GCDWebServerDataResponse *)responseForSwiftTypePath:(NSString *)path {
+    NSString *name = [[path lastPathComponent] stringByDeletingPathExtension];
+    RTBSwiftType *type = [RTBSwiftTypes typeNamed:name];
+    NSString *declaration = [type declaration];
+    if(declaration == nil) {
+        NSLog(@"-- [ERROR] no Swift type for path %@", path);
+        declaration = [NSString stringWithFormat:@"/* no Swift type named %@ */\n", name];
+    }
+    return [GCDWebServerDataResponse responseWithText:declaration];
 }
 
 - (NSString *)htmlEscapedString:(NSString *)s {
@@ -226,6 +252,8 @@
         [ms appendFormat:@"%@\n", [self linkForClassStub:cs pathPrefix:[@"/tree" stringByAppendingString:name]]];
     }
     
+    [ms appendString:[self swiftTypesListForImageAtPath:imagePath pathPrefix:[@"/tree" stringByAppendingString:name]]];
+    
     NSString *html = [self htmlPageWithContents:ms title:[name lastPathComponent]];
     
     return [GCDWebServerDataResponse responseWithHTML:html];
@@ -237,11 +265,13 @@
     
     NSDictionary *allClassesByImagesPath = [[RTBRuntime sharedInstance] allClassStubsByImagePath];
     __block NSArray *classes = nil;
+    __block NSString *imagePath = nil;
     
     [allClassesByImagesPath enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
         BOOL isDylib = [[key pathExtension] isEqualToString:@"dylib"];
         if([key rangeOfString:name].location != NSNotFound || (isDylib && [[key lastPathComponent] isEqualToString:[name lastPathComponent]])) {
             classes = obj;
+            imagePath = key;
             *stop = YES;
         }
     }];
@@ -256,6 +286,8 @@
     for(RTBClass *cs in sortedClassStubs) {
         [ms appendFormat:@"%@\n", [self linkForClassStub:cs pathPrefix:[@"/tree" stringByAppendingString:name]]];
     }
+    
+    if(imagePath) [ms appendString:[self swiftTypesListForImageAtPath:imagePath pathPrefix:[@"/tree" stringByAppendingString:name]]];
     
     NSString *html = [self htmlPageWithContents:ms title:[name lastPathComponent]];
     
@@ -371,6 +403,10 @@
     
     BOOL isProtocol = [path hasPrefix:@"/protocols/"] || [path hasPrefix:@"/tree/protocols/"];
     BOOL isHeaderFile = [path hasSuffix:@".h"];
+    
+    if([path hasSuffix:@".swift"]) {
+        return [self responseForSwiftTypePath:path];
+    }
     
     if(isHeaderFile) {
         if(isProtocol) {

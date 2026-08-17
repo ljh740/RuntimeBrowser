@@ -57,6 +57,7 @@ The purpose of ClassStub is to have a way of accessing ALL of a class's currentl
 - (NSString *)displayName;        // classObjectName, or the demangled name for mangled names
 - (NSDictionary *)swiftFieldsByName;
 - (NSArray *)sortedSwiftMembers;
+- (NSArray *)sortedSwiftConformances; // the Swift protocols the class conforms to, see RTBSwiftTypes.h
 
 - (NSSet *)iVarNames;
 - (NSSet *)iVarDecodedTypes;

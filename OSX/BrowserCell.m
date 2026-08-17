@@ -9,6 +9,7 @@
 #import "BrowserCell.h"
 #import "RTBProtocol.h"
 #import "RTBClass.h"
+#import "RTBSwiftTypes.h"
 #import "BrowserNode.h"
 
 @implementation BrowserCell
@@ -50,6 +51,12 @@
         objectValue = [obj nodeName];
     } else if([obj isKindOfClass:[RTBClass class]]) {
         icon = [NSImage imageNamed:@"class.tiff"];
+        objectValue = [obj nodeName];
+    } else if([obj isKindOfClass:[RTBSwiftType class]]) {
+        icon = [NSImage imageNamed:[(RTBSwiftType *)obj kind] == RTBSwiftTypeKindProtocol ? @"protocol.tiff" : @"class2.tiff"];
+        objectValue = [obj nodeName];
+    } else if([obj isKindOfClass:[SwiftTypesNode class]]) {
+        icon = [obj icon];
         objectValue = [obj nodeName];
     } else if([obj isKindOfClass:[BrowserNode class]]) {
         icon = [self iconForPath:[obj nodeName]];

@@ -18,9 +18,11 @@
 		0308D7491B009C73000CEC87 /* RTBMethod.m in Sources */ = {isa = PBXBuildFile; fileRef = 0308D7481B009C73000CEC87 /* RTBMethod.m */; };
 		03B5E7F1E2A4C6D800000023 /* RTBSwift.m in Sources */ = {isa = PBXBuildFile; fileRef = 03B5E7F1E2A4C6D800000022 /* RTBSwift.m */; };
 		03B5E7F1E2A4C6D800000053 /* RTBCategories.m in Sources */ = {isa = PBXBuildFile; fileRef = 03B5E7F1E2A4C6D800000052 /* RTBCategories.m */; };
+		03B5E7F1E2A4C6D800000064 /* RTBSwiftTypes.m in Sources */ = {isa = PBXBuildFile; fileRef = 03B5E7F1E2A4C6D800000062 /* RTBSwiftTypes.m */; };
 		0308D74A1B009C85000CEC87 /* RTBMethod.m in Sources */ = {isa = PBXBuildFile; fileRef = 0308D7481B009C73000CEC87 /* RTBMethod.m */; };
 		03B5E7F1E2A4C6D800000024 /* RTBSwift.m in Sources */ = {isa = PBXBuildFile; fileRef = 03B5E7F1E2A4C6D800000022 /* RTBSwift.m */; };
 		03B5E7F1E2A4C6D800000054 /* RTBCategories.m in Sources */ = {isa = PBXBuildFile; fileRef = 03B5E7F1E2A4C6D800000052 /* RTBCategories.m */; };
+		03B5E7F1E2A4C6D800000065 /* RTBSwiftTypes.m in Sources */ = {isa = PBXBuildFile; fileRef = 03B5E7F1E2A4C6D800000062 /* RTBSwiftTypes.m */; };
 		0331C1FF1AE66368002A641E /* RTBTypeDecoder.m in Sources */ = {isa = PBXBuildFile; fileRef = 0331C1FE1AE66368002A641E /* RTBTypeDecoder.m */; };
 		035A50691B237EC60042FBCB /* RTBTypeDecoder.m in Sources */ = {isa = PBXBuildFile; fileRef = 0331C1FE1AE66368002A641E /* RTBTypeDecoder.m */; };
 		03CE2D231ACD2FAF00C1519C /* UnitTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 03CE2D221ACD2FAF00C1519C /* UnitTests.m */; };
@@ -57,6 +59,9 @@
 		03B5E7F1E2A4C6D800000022 /* RTBSwift.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = RTBSwift.m; sourceTree = "<group>"; };
 		03B5E7F1E2A4C6D800000051 /* RTBCategories.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RTBCategories.h; sourceTree = "<group>"; };
 		03B5E7F1E2A4C6D800000052 /* RTBCategories.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = RTBCategories.m; sourceTree = "<group>"; };
+		03B5E7F1E2A4C6D800000061 /* RTBSwiftTypes.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RTBSwiftTypes.h; sourceTree = "<group>"; };
+		03B5E7F1E2A4C6D800000062 /* RTBSwiftTypes.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = RTBSwiftTypes.m; sourceTree = "<group>"; };
+		03B5E7F1E2A4C6D800000063 /* RTBSwiftRuntime.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RTBSwiftRuntime.h; sourceTree = "<group>"; };
 		0331C1FD1AE66368002A641E /* RTBTypeDecoder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RTBTypeDecoder.h; sourceTree = "<group>"; };
 		0331C1FE1AE66368002A641E /* RTBTypeDecoder.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = RTBTypeDecoder.m; sourceTree = "<group>"; };
 		037EDDB9130C68C800298C79 /* UnitTests-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "UnitTests-Info.plist"; sourceTree = "<group>"; };
@@ -112,6 +117,9 @@
 				03B5E7F1E2A4C6D800000022 /* RTBSwift.m */,
 				03B5E7F1E2A4C6D800000051 /* RTBCategories.h */,
 				03B5E7F1E2A4C6D800000052 /* RTBCategories.m */,
+				03B5E7F1E2A4C6D800000061 /* RTBSwiftTypes.h */,
+				03B5E7F1E2A4C6D800000062 /* RTBSwiftTypes.m */,
+				03B5E7F1E2A4C6D800000063 /* RTBSwiftRuntime.h */,
 			);
 			name = model;
 			path = ../model;
@@ -296,6 +304,7 @@
 				0308D74A1B009C85000CEC87 /* RTBMethod.m in Sources */,
 				03B5E7F1E2A4C6D800000024 /* RTBSwift.m in Sources */,
 				03B5E7F1E2A4C6D800000054 /* RTBCategories.m in Sources */,
+				03B5E7F1E2A4C6D800000065 /* RTBSwiftTypes.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -312,6 +321,7 @@
 				0308D7491B009C73000CEC87 /* RTBMethod.m in Sources */,
 				03B5E7F1E2A4C6D800000023 /* RTBSwift.m in Sources */,
 				03B5E7F1E2A4C6D800000053 /* RTBCategories.m in Sources */,
+				03B5E7F1E2A4C6D800000064 /* RTBSwiftTypes.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

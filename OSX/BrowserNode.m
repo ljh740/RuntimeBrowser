@@ -9,6 +9,7 @@
 #import "BrowserNode.h"
 #import "RTBRuntime.h"
 #import "RTBProtocol.h"
+#import "RTBSwiftTypes.h"
 
 @implementation BrowserNode
 
@@ -36,6 +37,9 @@
 		node.nodeName = image;
 		NSMutableArray *stubs = [NSMutableArray arrayWithArray:[allStubsByImage valueForKey:image]];
 		[stubs sortUsingSelector:@selector(compare:)];
+		if([RTBSwiftTypes imageAtPathHasSwiftTypes:image]) {
+			[stubs insertObject:[SwiftTypesNode nodeForImageAtPath:image] atIndex:0]; // first, before the classes
+		}
 		node.children = stubs;
 		[images addObject:node];
 	}
@@ -83,6 +87,35 @@
 
 - (BOOL)canBeSavedAsHeader {
 	return NO;
+}
+
+@end
+
+@implementation SwiftTypesNode
+
++ (SwiftTypesNode *)nodeForImageAtPath:(NSString *)imagePath {
+    SwiftTypesNode *node = [[SwiftTypesNode alloc] init];
+    node.imagePath = imagePath;
+    return node;
+}
+
+- (NSArray *)children {
+    if([super children] == nil) {
+        [super setChildren:[RTBSwiftTypes typesInImageAtPath:_imagePath]];
+    }
+    return [super children];
+}
+
+- (NSString *)nodeName {
+    return [NSString stringWithFormat:@"Swift types (%lu)", (unsigned long)[[self children] count]];
+}
+
+- (NSString *)nodeInfo {
+    return [self nodeName];
+}
+
+- (NSImage *)icon {
+    return [NSImage imageNamed:@"class2.tiff"];
 }
 
 @end

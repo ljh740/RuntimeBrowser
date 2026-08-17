@@ -6,6 +6,7 @@
 //
 
 #import "RTBSwift.h"
+#import "RTBSwiftRuntime.h"
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import <mach-o/loader.h>
@@ -13,34 +14,14 @@
 
 #pragma mark Swift runtime
 
-/*
- The Swift runtime entry points we use are SWIFT_CC(swift) functions, which for these signatures
- (pointers, integers, a two-words struct returned in registers) is compatible with the C calling
- convention on arm64 and x86_64.
- */
+char *(*rtb_swift_demangle)(const char *mangledName, size_t mangledNameLength, char *outputBuffer, size_t *outputBufferSize, uint32_t flags);
+RTBSwiftTypeNamePair (*rtb_swift_getTypeName)(const void *type, bool qualified);
+RTBSwiftTypeNamePair (*rtb_swift_getMangledTypeName)(const void *type);
+intptr_t (*rtb_swift_reflectionMirror_recursiveCount)(const void *type);
+const void *(*rtb_swift_reflectionMirror_recursiveChildMetadata)(const void *type, intptr_t index, RTBSwiftFieldReflectionMetadata *outMetadata, void (**outFreeFunc)(const char *));
+const void *(*rtb_swift_getTypeByMangledNameInContext)(const char *typeNameStart, size_t typeNameLength, const void *context, const void * const *genericArgs);
 
-typedef struct {
-    const char *data;
-    uintptr_t length;
-} RTBSwiftTypeNamePair;
-
-// Swift 5.5 and later fill in this struct, older runtimes take separate outName and outFreeFunc parameters,
-// passing &out and &out.freeFunc is compatible with both.
-typedef struct {
-    const char *name;
-    void (*freeFunc)(const char *);
-    bool isStrong;
-    bool isVar;
-    uint8_t padding[6];
-} RTBSwiftFieldReflectionMetadata;
-
-static char *(*rtb_swift_demangle)(const char *mangledName, size_t mangledNameLength, char *outputBuffer, size_t *outputBufferSize, uint32_t flags);
-static RTBSwiftTypeNamePair (*rtb_swift_getTypeName)(const void *type, bool qualified);
-static RTBSwiftTypeNamePair (*rtb_swift_getMangledTypeName)(const void *type);
-static intptr_t (*rtb_swift_reflectionMirror_recursiveCount)(const void *type);
-static const void *(*rtb_swift_reflectionMirror_recursiveChildMetadata)(const void *type, intptr_t index, RTBSwiftFieldReflectionMetadata *outMetadata, void (**outFreeFunc)(const char *));
-
-static void rtb_loadSwiftRuntime(void) {
+void rtb_loadSwiftRuntime(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         void *handle = RTLD_DEFAULT;
@@ -53,7 +34,21 @@ static void rtb_loadSwiftRuntime(void) {
         rtb_swift_getMangledTypeName = dlsym(handle, "swift_getMangledTypeName"); // Swift 5.3+
         rtb_swift_reflectionMirror_recursiveCount = dlsym(handle, "swift_reflectionMirror_recursiveCount"); // Swift 5.2+
         rtb_swift_reflectionMirror_recursiveChildMetadata = dlsym(handle, "swift_reflectionMirror_recursiveChildMetadata");
+        rtb_swift_getTypeByMangledNameInContext = dlsym(handle, "swift_getTypeByMangledNameInContext");
     });
+}
+
+NSString *rtb_swiftDemangledName(NSString *mangledName) {
+    rtb_loadSwiftRuntime();
+    if(rtb_swift_demangle == NULL || mangledName == nil) return nil;
+    
+    const char *mangledNameC = [mangledName UTF8String];
+    char *demangledName = rtb_swift_demangle(mangledNameC, strlen(mangledNameC), NULL, NULL, 0);
+    if(demangledName == NULL) return nil; // not a mangled name
+    
+    NSString *s = [NSString stringWithCString:demangledName encoding:NSUTF8StringEncoding];
+    free(demangledName);
+    return [s isEqualToString:mangledName] ? nil : s; // swift_demangle() returns the mangled name when it cannot demangle it
 }
 
 #pragma mark Metadata
@@ -77,7 +72,7 @@ static BOOL rtb_classIsSwiftLegacy(Class klass) {
     return (rtb_objcClassBits(klass) & 0x1) != 0;
 }
 
-static NSString *rtb_swiftTypeName(const void *metadata) {
+NSString *rtb_swiftTypeName(const void *metadata) {
     if(metadata == NULL || rtb_swift_getTypeName == NULL) return nil;
     RTBSwiftTypeNamePair pair = rtb_swift_getTypeName(metadata, true);
     if(pair.data == NULL) return nil;
@@ -97,7 +92,28 @@ static NSString *rtb_stringByRemovingGenericArguments(NSString *typeName) {
     return ms;
 }
 
-static NSString *rtb_swiftMangledNominalTypeName(const void *metadata) {
+// (extension in Foundation):Foundation.Measurement< where A: __C.NSDimension>.FormatStyle.width -> (extension in Foundation):Foundation.Measurement.FormatStyle.width
+// The demangler writes the requirements of the constrained extensions in the contexts, the names of the types don't have them.
+static NSString *rtb_stringByRemovingWhereClauses(NSString *s) {
+    NSRange r = [s rangeOfString:@"< where "];
+    if(r.location == NSNotFound) return s;
+    NSMutableString *ms = [NSMutableString string];
+    NSUInteger depth = 0;
+    for(NSUInteger i = 0; i < [s length]; i++) {
+        unichar c = [s characterAtIndex:i];
+        if(depth == 0 && c == '<' && [s rangeOfString:@"< where " options:NSAnchoredSearch range:NSMakeRange(i, [s length] - i)].location != NSNotFound) {
+            depth = 1;
+        } else if(depth > 0) {
+            if(c == '<') depth++;
+            else if(c == '>') depth--;
+        } else {
+            [ms appendFormat:@"%C", c];
+        }
+    }
+    return ms;
+}
+
+NSString *rtb_swiftMangledNominalTypeName(const void *metadata) {
     /*"
      The mangled name of the type without the generic arguments, eg. 7SwiftUI17AccessibilityNodeC.
      The symbols of the members of the type start with "$s" followed by this name.
@@ -226,7 +242,7 @@ static RTBSwiftSymbolIndex *rtb_swiftSymbolIndexForImage(const void *imageBase) 
     return index;
 }
 
-static NSArray *rtb_swiftSymbolNamesWithPrefix(const void *imageBase, NSString *prefix) {
+NSArray *rtb_swiftSymbolNamesWithPrefix(const void *imageBase, NSString *prefix) {
     
     RTBSwiftSymbolIndex *index = rtb_swiftSymbolIndexForImage(imageBase);
     if(index == NULL || index->count == 0 || [prefix length] == 0) return @[];
@@ -250,6 +266,68 @@ static NSArray *rtb_swiftSymbolNamesWithPrefix(const void *imageBase, NSString *
     return ma;
 }
 
+#pragma mark Members
+
+NSArray *rtb_swiftSortedMembers(NSString *typeName, NSString *mangledNominalName, const void *imageBase) {
+    /*"
+     The symbols of the image whose mangled name starts with the mangled name of the type are demangled
+     and turned into declarations, eg. "init(name: Swift.String)", "func run() -> ()", "var name: Swift.String { get set }".
+     "*/
+    
+    NSMutableArray *ma = [NSMutableArray array];
+    
+    rtb_loadSwiftRuntime();
+    if(rtb_swift_demangle == NULL || typeName == nil || mangledNominalName == nil || imageBase == NULL) return ma;
+    
+    // the members of a generic type are declared for the unspecialized type, eg. Swift.ManagedBuffer.header.getter : A
+    typeName = rtb_stringByRemovingGenericArguments(typeName);
+    
+    NSArray *symbols = rtb_swiftSymbolNamesWithPrefix(imageBase, [@"$s" stringByAppendingString:mangledNominalName]);
+    
+    NSMutableSet *seen = [NSMutableSet set];
+    NSMutableDictionary *propertiesByKey = [NSMutableDictionary dictionary]; // "var name: T" -> the most complete declaration
+    
+    for(NSString *symbol in symbols) {
+        char *demangled = rtb_swift_demangle([symbol UTF8String], [symbol lengthOfBytesUsingEncoding:NSUTF8StringEncoding], NULL, NULL, 0);
+        if(demangled == NULL) continue;
+        NSString *demangledSymbol = [NSString stringWithCString:demangled encoding:NSUTF8StringEncoding];
+        free(demangled);
+        
+        NSString *declaration = [RTBSwift declarationForDemangledSymbol:rtb_stringByRemovingWhereClauses(demangledSymbol) typeName:typeName];
+        if(declaration == nil) continue;
+        
+        // the accessors and the property descriptor of a property yield several declarations, keep the most complete one
+        NSRange accessorsRange = [declaration rangeOfString:@" { get"];
+        NSString *key = accessorsRange.location != NSNotFound ? [declaration substringToIndex:accessorsRange.location] : declaration;
+        if([key hasPrefix:@"var "] || [key hasPrefix:@"static var "] || [key hasPrefix:@"private var "] || [key hasPrefix:@"static private var "]) {
+            NSString *existing = propertiesByKey[key];
+            if(existing == nil || [declaration length] > [existing length]) propertiesByKey[key] = declaration; // "{ get set }" > "{ get }" > nothing
+            continue;
+        }
+        
+        if([seen containsObject:declaration]) continue;
+        [seen addObject:declaration];
+        [ma addObject:declaration];
+    }
+    
+    [ma addObjectsFromArray:[propertiesByKey allValues]];
+    
+    // static members, then initializers, then the rest in alphabetical order, private members last
+    NSInteger (^rank)(NSString *) = ^NSInteger(NSString *d) {
+        if([d hasPrefix:@"static "]) return 0;
+        if([d hasPrefix:@"init"]) return 1;
+        if([d hasPrefix:@"private "]) return 3;
+        return 2;
+    };
+    [ma sortUsingComparator:^NSComparisonResult(NSString *d1, NSString *d2) {
+        NSInteger r1 = rank(d1), r2 = rank(d2);
+        if(r1 != r2) return r1 < r2 ? NSOrderedAscending : NSOrderedDescending;
+        return [d1 compare:d2];
+    }];
+    
+    return ma;
+}
+
 #pragma mark - RTBSwift
 
 @implementation RTBSwift
@@ -268,16 +346,7 @@ static NSArray *rtb_swiftSymbolNamesWithPrefix(const void *imageBase, NSString *
 }
 
 + (NSString *)demangledName:(NSString *)mangledName {
-    rtb_loadSwiftRuntime();
-    if(rtb_swift_demangle == NULL || mangledName == nil) return nil;
-    
-    const char *mangledNameC = [mangledName UTF8String];
-    char *demangledName = rtb_swift_demangle(mangledNameC, strlen(mangledNameC), NULL, NULL, 0);
-    if(demangledName == NULL) return nil; // not a mangled name
-    
-    NSString *s = [NSString stringWithCString:demangledName encoding:NSUTF8StringEncoding];
-    free(demangledName);
-    return s;
+    return rtb_swiftDemangledName(mangledName);
 }
 
 + (NSString *)nameOfClass:(Class)klass {
@@ -499,11 +568,11 @@ static BOOL rtb_needsParenthesesForOptional(NSString *s) {
         }
     }
     
-    if([s hasPrefix:@"__allocating_init("] || [s hasPrefix:@"init("]) {
+    if([s hasPrefix:@"__allocating_init("] || [s hasPrefix:@"init("] || [s hasPrefix:@"__allocating_init<"] || [s hasPrefix:@"init<"]) {
         NSRange arrowRange = [s rangeOfString:@" -> " options:NSBackwardsSearch];
         NSString *returnType = arrowRange.location != NSNotFound ? [s substringFromIndex:arrowRange.location + 4] : nil;
         if(arrowRange.location != NSNotFound) s = [s substringToIndex:arrowRange.location];
-        if([s hasPrefix:@"__allocating_init("]) s = [s substringFromIndex:[@"__allocating_" length]];
+        if([s hasPrefix:@"__allocating_init"]) s = [s substringFromIndex:[@"__allocating_" length]];
         if([returnType hasPrefix:@"Swift.Optional<"]) s = [@"init?" stringByAppendingString:[s substringFromIndex:[@"init" length]]]; // failable
         return [prefix stringByAppendingString:s];
     }
@@ -560,27 +629,19 @@ static BOOL rtb_needsParenthesesForOptional(NSString *s) {
 
 + (NSArray *)sortedMembersOfClass:(Class)klass {
     /*"
-     The Swift members of a class, recovered from the symbol table of its image: the symbols whose
-     mangled name starts with the mangled name of the class are demangled and turned into declarations,
-     eg. "init(name: Swift.String)", "func run() -> ()", "var name: Swift.String { get set }".
+     The Swift members of a class, recovered from the symbol table of its image, see rtb_swiftSortedMembers().
      Public members always have exported symbols (dispatch thunks and method descriptors), the internal
      ones only when the image is not stripped.
      "*/
     
-    NSMutableArray *ma = [NSMutableArray array];
-    
-    if(rtb_classHasSwiftMetadata(klass) == NO) return ma;
+    if(rtb_classHasSwiftMetadata(klass) == NO) return @[];
     
     rtb_loadSwiftRuntime();
-    if(rtb_swift_demangle == NULL) return ma;
     
     const void *metadata = (__bridge const void *)klass;
     NSString *typeName = rtb_swiftTypeName(metadata);
     NSString *mangledName = rtb_swiftMangledNominalTypeName(metadata);
-    if(typeName == nil || mangledName == nil) return ma;
-    
-    // the members of a generic class are declared for the unspecialized type, eg. Swift.ManagedBuffer.header.getter : A
-    typeName = rtb_stringByRemovingGenericArguments(typeName);
+    if(typeName == nil || mangledName == nil) return @[];
     
     // the metadata of a generic specialization is instantiated at runtime outside of any image,
     // but its nominal type descriptor is in the image where the class was compiled
@@ -589,52 +650,9 @@ static BOOL rtb_needsParenthesesForOptional(NSString *s) {
     const void *description = *(const void **)((const uint8_t *)metadata + 5 * sizeof(void *) + 24); // see TargetClassMetadata
     if(description && dladdr(description, &info) != 0) imageBase = info.dli_fbase;
     if(imageBase == NULL && dladdr(metadata, &info) != 0) imageBase = info.dli_fbase;
-    if(imageBase == NULL) return ma;
+    if(imageBase == NULL) return @[];
     
-    NSArray *symbols = rtb_swiftSymbolNamesWithPrefix(imageBase, [@"$s" stringByAppendingString:mangledName]);
-    
-    NSMutableSet *seen = [NSMutableSet set];
-    NSMutableDictionary *propertiesByKey = [NSMutableDictionary dictionary]; // "var name: T" -> the most complete declaration
-    
-    for(NSString *symbol in symbols) {
-        char *demangled = rtb_swift_demangle([symbol UTF8String], [symbol lengthOfBytesUsingEncoding:NSUTF8StringEncoding], NULL, NULL, 0);
-        if(demangled == NULL) continue;
-        NSString *demangledSymbol = [NSString stringWithCString:demangled encoding:NSUTF8StringEncoding];
-        free(demangled);
-        
-        NSString *declaration = [self declarationForDemangledSymbol:demangledSymbol typeName:typeName];
-        if(declaration == nil) continue;
-        
-        // the accessors and the property descriptor of a property yield several declarations, keep the most complete one
-        NSRange accessorsRange = [declaration rangeOfString:@" { get"];
-        NSString *key = accessorsRange.location != NSNotFound ? [declaration substringToIndex:accessorsRange.location] : declaration;
-        if([key hasPrefix:@"var "] || [key hasPrefix:@"static var "] || [key hasPrefix:@"private var "] || [key hasPrefix:@"static private var "]) {
-            NSString *existing = propertiesByKey[key];
-            if(existing == nil || [declaration length] > [existing length]) propertiesByKey[key] = declaration; // "{ get set }" > "{ get }" > nothing
-            continue;
-        }
-        
-        if([seen containsObject:declaration]) continue;
-        [seen addObject:declaration];
-        [ma addObject:declaration];
-    }
-    
-    [ma addObjectsFromArray:[propertiesByKey allValues]];
-    
-    // static members, then initializers, then the rest in alphabetical order, private members last
-    NSInteger (^rank)(NSString *) = ^NSInteger(NSString *d) {
-        if([d hasPrefix:@"static "]) return 0;
-        if([d hasPrefix:@"init"]) return 1;
-        if([d hasPrefix:@"private "]) return 3;
-        return 2;
-    };
-    [ma sortUsingComparator:^NSComparisonResult(NSString *d1, NSString *d2) {
-        NSInteger r1 = rank(d1), r2 = rank(d2);
-        if(r1 != r2) return r1 < r2 ? NSOrderedAscending : NSOrderedDescending;
-        return [d1 compare:d2];
-    }];
-    
-    return ma;
+    return rtb_swiftSortedMembers(typeName, mangledName, imageBase);
 }
 
 @end
