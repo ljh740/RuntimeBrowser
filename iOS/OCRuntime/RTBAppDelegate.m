@@ -100,14 +100,33 @@
     return myIP;
 }
 
+// the link to the header of a class: the URL uses the runtime name, the text the display name, eg. the demangled Swift name
+- (NSString *)linkForClassStub:(RTBClass *)cs pathPrefix:(NSString *)pathPrefix {
+    if([pathPrefix hasSuffix:@"/"] == NO) pathPrefix = [pathPrefix stringByAppendingString:@"/"];
+    NSString *escapedName = [cs.classObjectName stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
+    NSString *link = [NSString stringWithFormat:@"<A HREF=\"%@%@.h\">%@.h</A>", pathPrefix, escapedName, [self htmlEscapedString:cs.classObjectName]];
+    NSString *displayName = [cs displayName];
+    if([displayName isEqualToString:cs.classObjectName] == NO) { // eg. the demangled name of a Swift class
+        link = [NSString stringWithFormat:@"%@ <span style=\"color:gray\">%@</span>", link, [self htmlEscapedString:displayName]];
+    }
+    return link;
+}
+
+- (NSString *)htmlEscapedString:(NSString *)s {
+    NSMutableString *ms = [s mutableCopy];
+    [ms replaceOccurrencesOfString:@"&" withString:@"&amp;" options:0 range:NSMakeRange(0, [ms length])];
+    [ms replaceOccurrencesOfString:@"<" withString:@"&lt;" options:0 range:NSMakeRange(0, [ms length])];
+    [ms replaceOccurrencesOfString:@">" withString:@"&gt;" options:0 range:NSMakeRange(0, [ms length])];
+    return ms;
+}
+
 - (GCDWebServerDataResponse *)responseForList {
     NSMutableString *ms = [NSMutableString string];
     
     NSArray *classes = [_allClasses sortedClassStubs];
     [ms appendFormat:@"%@ classes loaded\n\n", @([classes count])];
     for(RTBClass *cs in classes) {
-        //if([cs.stubClassname compare:@"S"] == NSOrderedAscending) continue;
-        [ms appendFormat:@"<A HREF=\"/classes/%@.h\">%@.h</A>\n", cs.classObjectName, cs.classObjectName];
+        [ms appendFormat:@"%@\n", [self linkForClassStub:cs pathPrefix:@"/classes/"]];
     }
     
     NSString *html = [self htmlPageWithContents:ms title:@"iOS Runtime Browser - List View"];
@@ -200,12 +219,10 @@
     NSMutableString *ms = [NSMutableString string];
     [ms appendFormat:@"%@\n%@ classes\n\n", name, @([classes count])];
     
-    NSArray *sortedDylibs = [classes sortedArrayUsingComparator:^NSComparisonResult(NSString *s1, NSString *s2) {
-        return [s1 compare:s2];
-    }];
+    NSArray *sortedClassStubs = [classes sortedArrayUsingSelector:@selector(compare:)];
     
-    for(NSString *s in sortedDylibs) {
-        [ms appendFormat:@"<A HREF=\"/tree%@/%@.h\">%@.h</A>\n", name, s, s];
+    for(RTBClass *cs in sortedClassStubs) {
+        [ms appendFormat:@"%@\n", [self linkForClassStub:cs pathPrefix:[@"/tree" stringByAppendingString:name]]];
     }
     
     NSString *html = [self htmlPageWithContents:ms title:[name lastPathComponent]];
@@ -231,14 +248,12 @@
     /**/
     
     NSMutableString *ms = [NSMutableString string];
-    [ms appendFormat:@"%@\n%@ dylibs\n\n", name, @([classes count])];
+    [ms appendFormat:@"%@\n%@ classes\n\n", name, @([classes count])];
     
-    NSArray *sortedDylibs = [classes sortedArrayUsingComparator:^NSComparisonResult(NSString *s1, NSString *s2) {
-        return [s1 compare:s2];
-    }];
+    NSArray *sortedClassStubs = [classes sortedArrayUsingSelector:@selector(compare:)];
     
-    for(NSString *s in sortedDylibs) {
-        [ms appendFormat:@"<A HREF=\"/tree%@/%@.h\">%@.h</A>\n", name, s, s];
+    for(RTBClass *cs in sortedClassStubs) {
+        [ms appendFormat:@"%@\n", [self linkForClassStub:cs pathPrefix:[@"/tree" stringByAppendingString:name]]];
     }
     
     NSString *html = [self htmlPageWithContents:ms title:[name lastPathComponent]];
