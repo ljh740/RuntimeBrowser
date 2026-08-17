@@ -46,19 +46,8 @@
  - types clang cannot encode (eg. vector types) are simply left out by the compiler,
    which yields empty types such as [3], ^96 or {?="v"} -> "void" followed by a "?" comment
 
- PENDING:
- - typedefs for struct references
- - categories
- 
- ----------------
- strip return type.
- advance to first ':' (arg separator -- a CONST)
- LOOP:
- read size (an int)
- parse arg type
- :END
- Insert arg types (no names) into method name.  // use string --> array conversion (break at ':')
- ----------------
+ The parser is a recursive descent over ivT, the encoding being parsed. A decoded type comes in two
+ parts, see RTBTypeDeclaration. The nested structs get generated member names, eg. x1, x_1_2_1.
  */
 
 #import "RTBTypeDecoder.h"
@@ -69,9 +58,6 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #endif
-
-static NSString *TYPE_LABEL = @"type";
-static NSString *MODIFIER_LABEL = @"modifier";
 
 static NSString *IVAR_TAB = @"    ";
 
@@ -91,23 +77,22 @@ NSString * rtb_argTypeSpecifierForEncoding(char fc) {
     return nil;
 }
 
-NSString *rtb_unhandledWarning(BOOL showUnhandledWarning) {
-    return (showUnhandledWarning ?
-            @"/* RuntimeBrowser encountered an ivar type encoding it does not handle. \n   See Warning(s) below.\n */\n\n" :
-            @"");
-}
-
-NSString *rtb_functionSignatureNote(BOOL showFunctionSignatureNote) {
-    return (showFunctionSignatureNote ?
-            @"/* RuntimeBrowser encountered one or more ivar type encodings for a function pointer. \n   The runtime does not encode function signature information.  We use a signature of: \n           \"int (*funcName)()\",  where funcName might be null. \n */\n\n" :
-            @"");
-}
-
 @interface RTBTypeDecoder ()
-- (NSString *)parseStructOrUnionEndCh:(char)endCh depth:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter;
-- (NSDictionary *)typeEncParseObjectRefInStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName spaceAfter:(BOOL)spaceAfter;
-- (NSDictionary *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter;
-- (NSDictionary *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter;
+- (NSString *)parseStructOrUnionEndCh:(char)endCh depth:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine spaceAfter:(BOOL)spaceAfter;
+- (RTBTypeDeclaration *)typeEncParseObjectRefInStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName spaceAfter:(BOOL)spaceAfter;
+- (RTBTypeDeclaration *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct inLine:(BOOL)inLine spaceAfter:(BOOL)spaceAfter;
+- (RTBTypeDeclaration *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName inLine:(BOOL)inLine spaceAfter:(BOOL)spaceAfter;
+@end
+
+@implementation RTBTypeDeclaration
+
++ (instancetype)declarationWithType:(NSString *)type modifier:(NSString *)modifier {
+    RTBTypeDeclaration *d = [[self alloc] init];
+    d.type = type;
+    d.modifier = modifier ? modifier : @"";
+    return d;
+}
+
 @end
 
 // the type used when the compiler did not encode a type at all (eg. vector types)
@@ -153,8 +138,6 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
 
 @implementation RTBTypeDecoder
 
-@synthesize namedStructs;
-
 - (void)setIvT:(const char*)s {
     ivT = s;
 }
@@ -186,7 +169,7 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     while(YES) {
         @autoreleasepool {
   
-        NSDictionary *d = nil;
+        RTBTypeDeclaration *d = nil;
         
         [typeDecoder skipDigits];
 
@@ -200,8 +183,8 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
             d = [typeDecoder ivarCTypeDeclForEncType];
         }
 
-        NSString *type = d[TYPE_LABEL];
-        NSString *modifier = d[MODIFIER_LABEL];
+        NSString *type = d.type;
+        NSString *modifier = d.modifier;
             
         if(flat && [modifier length] > 0) {
             // there is no variable name to put in between, eg. "int (*" + ")()" -> "int (*)()"
@@ -231,9 +214,9 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     RTBTypeDecoder *typeDecoder = [[self alloc] init];
     typeDecoder.showCommentForBlocks = [[NSUserDefaults standardUserDefaults] boolForKey:@"RTBAddCommentsForBlocks"];
     
-    NSDictionary *d = [typeDecoder ivarCTypeDeclForEncType:cString];
-    NSString *type = d[TYPE_LABEL];
-    NSString *modifier = d[MODIFIER_LABEL];
+    RTBTypeDeclaration *d = [typeDecoder ivarCTypeDeclForEncType:cString];
+    NSString *type = d.type;
+    NSString *modifier = d.modifier;
     
     if(type == nil) return [NSString stringWithFormat:@"%@ %@", RTB_UNKNOWN_TYPE, name];
     
@@ -255,19 +238,16 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     return decodedType;
 }
 
-//OK
-- (NSDictionary *)typeEncWarning:(NSString *)inParse startingIVT:(const char*)startingIVT origResult:(NSDictionary *)origResult {
-    NSString *typeS = [origResult objectForKey:TYPE_LABEL];
-    NSString *modifierS = [origResult objectForKey:MODIFIER_LABEL];
+- (RTBTypeDeclaration *)typeEncWarning:(NSString *)inParse startingIVT:(const char*)startingIVT origResult:(RTBTypeDeclaration *)origResult {
+    NSString *typeS = origResult.type;
+    NSString *modifierS = origResult.modifier;
     
     typeS = [NSString stringWithFormat:@"/* Warning: unhandled %@encoding: '%s' */ %@", inParse, startingIVT, typeS];
     currentWarning = YES;  // indicated that we've already issued a warning on this pass through the ivar parser.
-    methodWarning = showUnhandledWarning = YES;
     
-    return [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+    return [RTBTypeDeclaration declarationWithType:typeS modifier:modifierS];
 }
 
-//OK
 // See the "Definitions of filer types" #define(s) in objc-class.h
 - (NSString *)typeForFilerCode:(char)fc spaceAfter:(BOOL)spaceAfter {
     NSString *rs;
@@ -387,8 +367,6 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
         default :
             if (!currentWarning) {
                 currentWarning = YES;
-                showUnhandledWarning = YES;
-                methodWarning = YES;
                 rs = [NSString stringWithFormat:@"/* Warning: Unrecognized filer type: '%c' using 'void*' */ void*", fc];
             } else {
                 rs = @"void*";
@@ -409,13 +387,12 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     return rs;
 }
 
-//OK
-- (NSDictionary *)typeEncParseBitField:(BOOL)spaceAfter {
+- (RTBTypeDeclaration *)typeEncParseBitField:(BOOL)spaceAfter {
     /*"
      NeXT: bit field encoding format 'bN', where N is the size, an integer.
      Later GCC: encoding format 'bOtN',  where O (an int) is the offset, t (char) is the type, N (int) is the size.
      "*/
-    NSDictionary *result;
+    RTBTypeDeclaration *result;
     NSString *typeS = nil;
     NSString *modifierS = nil;
     int sizeModifier;    // size of this bitfield
@@ -431,16 +408,15 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
      return endByte - startByte;
      */
     
-    // or use:    sizeModifier=atoi(ivT)
     if (sscanf(ivT, "%d", &sizeModifier) == 1) {  // parse the integer
         while (isdigit(*++ivT));       // skip the digits
         modifierS = [NSString stringWithFormat:@" : %d", sizeModifier]; // its a size modifier
         typeS = (spaceAfter ? @"unsigned int " : @"unsigned int"); // bit fields use unsigned int
-        result = [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+        result = [RTBTypeDeclaration declarationWithType:typeS modifier:modifierS];
     } else {  // warn about badly formatted FILER type info.
         typeS = (spaceAfter ? @"unsigned int " : @"unsigned int");
         modifierS = @"/* : ? */";
-        result = [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+        result = [RTBTypeDeclaration declarationWithType:typeS modifier:modifierS];
         if (!currentWarning)
             result = [self typeEncWarning:@"bit field" startingIVT:(ivT - 1) origResult:result];
         // to skip the rest, or not to skip ...
@@ -449,7 +425,6 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     return result;
 }
 
-//OK
 - (BOOL)hasClassName {
     // An object pointer (type 'id') includes a
     // named reference iff the following name is quoted.
@@ -463,7 +438,6 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     return ((tmp != NULL) && (*(tmp+1) == '"' || *(tmp+1) == '}' || *(tmp+1) == ')' || *(tmp+1) == ']'));
 }
 
-//OK
 - (void)advanceIVTPast:(char)endCh {
     /**
      Advance ivT past endCh or, if not found, to the end of ivT.
@@ -476,31 +450,29 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
         ivT = tmp + 1;       // move past endCh
 }
 
-//OK
-- (NSDictionary *)typeEncParseArrayOf:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
+- (RTBTypeDeclaration *)typeEncParseArrayOf:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName inLine:(BOOL)inLine spaceAfter:(BOOL)spaceAfter {
     NSString *typeS = nil;
     NSString *modifierS = nil;
     int sizeModifier;    // size of this array
     
     if (sscanf(ivT, "%d", &sizeModifier) == 1) {  // Array encoding starts with the size of the array
-        NSDictionary *innerTypeInfo;
+        RTBTypeDeclaration *innerTypeInfo;
         
         while (isdigit(*ivT)) ++ivT;      // move past the digits (size)
         if (*ivT == ']') {
             // the compiler did not encode the element type, eg. [3] for an array of vectors
             typeS = spaceAfter ? [RTB_UNKNOWN_TYPE stringByAppendingString:@" "] : RTB_UNKNOWN_TYPE;
             modifierS = [NSString stringWithFormat:@"[%d]", sizeModifier];
-            return [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+            return [RTBTypeDeclaration declarationWithType:typeS modifier:modifierS];
         }
-        innerTypeInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine inParam:inParam spaceAfter:spaceAfter]; // what TYPE of array
-        typeS = [innerTypeInfo objectForKey:TYPE_LABEL];  // get the inner type
+        innerTypeInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine spaceAfter:spaceAfter]; // what TYPE of array
+        typeS = innerTypeInfo.type;  // get the inner type
         // append a modifier that makes the type into an array of size 'sizeModifier'
         // NOTE: the array itself may be "modified" (e.g., nested arrays),  so append the inner modifier.
-        modifierS = [NSString stringWithFormat:@"[%d]%@", sizeModifier, [innerTypeInfo objectForKey:MODIFIER_LABEL]];
+        modifierS = [NSString stringWithFormat:@"[%d]%@", sizeModifier, innerTypeInfo.modifier];
     } else {  // no size encoded ... handle bad or unrecognized encodings
         if (!currentWarning) {
             currentWarning = YES;
-            methodWarning = showUnhandledWarning = YES;
             typeS = [NSString stringWithFormat:@"/* Warning: unhandled array encoding: '%s' */void*", (ivT - 1)];
             if (spaceAfter) typeS = [typeS stringByAppendingString:@" "];
         } else {
@@ -509,11 +481,10 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
         modifierS = @"[ /* ? */ ]"; // size unknown.
     }
     
-    return [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+    return [RTBTypeDeclaration declarationWithType:typeS modifier:modifierS];
 }
 
-//OK
-- (NSDictionary *)typeEncParsePointerTo:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
+- (RTBTypeDeclaration *)typeEncParsePointerTo:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct inLine:(BOOL)inLine spaceAfter:(BOOL)spaceAfter {
     NSString *typeS = nil;
     NSString *modifierS = nil;
     
@@ -521,7 +492,6 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
         ++ivT;
         typeS = @"int (*";
         modifierS = @")()";
-        showFunctionSignatureNote = YES;
     } else if (rtb_isTypeTerminator(*ivT)) {
         // the compiler did not encode the pointee type, eg. ^96 for a pointer to a vector type followed by its offset
         typeS = [RTB_UNKNOWN_TYPE stringByAppendingString:@" *"];
@@ -529,15 +499,15 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     } else {
         // Note that clang never encodes class names after a pointer, eg. NSError ** is ^@ and not ^@"NSError",
         // so a quoted string here is always the name of the next field of the enclosing struct.
-        NSDictionary *innerTypeInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:NO inLine:inLine inParam:inParam spaceAfter:spaceAfter]; // Get the type
+        RTBTypeDeclaration *innerTypeInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:NO inLine:inLine spaceAfter:spaceAfter]; // Get the type
         
-        modifierS = [innerTypeInfo objectForKey:MODIFIER_LABEL];  // and it's modifier
-        NSString *innerType = [innerTypeInfo objectForKey:TYPE_LABEL];
+        modifierS = innerTypeInfo.modifier;  // and it's modifier
+        NSString *innerType = innerTypeInfo.type;
         BOOL needsSpace = [innerType length] > 0 && [innerType hasSuffix:@" "] == NO && [innerType hasSuffix:@"*"] == NO; // void * and void **, int (**)()
         typeS = [innerType stringByAppendingString:(needsSpace ? @" *" : @"*")];  // make type a pointer
     }
     
-    return [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+    return [RTBTypeDeclaration declarationWithType:typeS modifier:modifierS];
 }
 
 - (void)skipDigits {
@@ -546,22 +516,19 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     };
 }
 
-//OK
-- (NSDictionary *)flatCTypeDeclForEncType {
-    structPart = structDepth = 0; // PENDING ....use global access rather than params?
-    return [self cTypeDeclForEncTypeDepth:&structDepth sPart:structPart inStruct:NO inLine:YES inParam:YES spaceAfter:NO];
+- (RTBTypeDeclaration *)flatCTypeDeclForEncType {
+    int depth = 0;
+    return [self cTypeDeclForEncTypeDepth:&depth sPart:0 inStruct:NO inLine:YES spaceAfter:NO];
 }
 
-//OK
-- (NSDictionary *)ivarCTypeDeclForEncType {
-    structPart = structDepth = 0;
-    return [self cTypeDeclForEncTypeDepth:&structDepth sPart:structPart inStruct:NO inLine:NO inParam:NO spaceAfter:YES];
+- (RTBTypeDeclaration *)ivarCTypeDeclForEncType {
+    int depth = 0;
+    return [self cTypeDeclForEncTypeDepth:&depth sPart:0 inStruct:NO inLine:NO spaceAfter:YES];
 }
 
-//OK
-- (NSMutableString *)parseUnnamedStructOrUnionVarEndCh:(char)endCh depth:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine inParam:(BOOL)inParam {
+- (NSMutableString *)parseUnnamedStructOrUnionVarEndCh:(char)endCh depth:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine {
     NSMutableString *structS = [NSMutableString string];
-    NSDictionary *structInfo;
+    RTBTypeDeclaration *structInfo;
     NSString *partName;
     int i;
     
@@ -569,8 +536,7 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     for (i=1; *ivT != endCh && *ivT != '\0'; ++i) {
         @autoreleasepool {
             
-            //structInfo = cTypeDeclForEncType(depth, i, YES, inLine, inParam, YES);
-            structInfo = [self cTypeDeclForEncTypeDepth:depth sPart:i inStruct:YES inLine:inLine inParam:inParam spaceAfter:YES];
+            structInfo = [self cTypeDeclForEncTypeDepth:depth sPart:i inStruct:YES inLine:inLine spaceAfter:YES];
             
             // Naming for nested pieces is a bit of a kludge.
             // To support arbitrary nesting w/ unique naming (not required to compile)
@@ -581,14 +547,14 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
                 continue;
             }
             
-            if (sPart > 1 || *depth > 1) { // PENDING -- make var (and arg, and category and ...) names a parameter
+            if (sPart > 1 || *depth > 1) {
                 partName = [NSString stringWithFormat:@"x_%d_%d_%d", sPart, (*depth)-1, i];
             } else {
-                partName = [NSString stringWithFormat:@"x%d", i]; // PENDING -- make var names a parameter
+                partName = [NSString stringWithFormat:@"x%d", i];
             }
-            [structS appendString:[structInfo objectForKey:TYPE_LABEL]];
+            [structS appendString:structInfo.type];
             [structS appendString:partName];
-            [structS appendString:[structInfo objectForKey:MODIFIER_LABEL]];
+            [structS appendString:structInfo.modifier];
             [structS appendString:@"; "];
         }
     }
@@ -596,9 +562,7 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     return structS;
 }
 
-// OK
-- (NSDictionary *)typeEncParseStructOrUnionWithEncType:(NSString *)encType endCh:(char)endCh depth:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
-    //ivT = "?=i[3f]b128i3b131i2c}"; // http://gcc.gnu.org/onlinedocs/gcc-3.0.4/gcc_7.html#SEC130
+- (RTBTypeDeclaration *)typeEncParseStructOrUnionWithEncType:(NSString *)encType endCh:(char)endCh depth:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine spaceAfter:(BOOL)spaceAfter {
     
     NSString *typeS = @"";
     NSString *modifierS = @"";
@@ -609,7 +573,7 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     // The '=' must come before the end of this struct/union and before the beginning of another.
     if ( eqPos != NULL ) {
         // struct or union definition provided (parsed by parseStructOrUnion()).
-        typeS = [self parseStructOrUnionEndCh:endCh depth:depth sPart:sPart inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+        typeS = [self parseStructOrUnionEndCh:endCh depth:depth sPart:sPart inLine:inLine spaceAfter:spaceAfter];
     } else {   // named struct or union (name only)
         const char *tmp = rtb_structNameEnd(ivT, endCh);
         if (tmp != NULL) {
@@ -624,9 +588,8 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
                 
                 // need parse union's differently
                 if (endCh == ')' && !isNameOnly) {  // Learned this later... no longer a generic Struct/Unin parser. Alas.
-                    typeS =  [self parseUnnamedStructOrUnionVarEndCh:endCh depth:depth sPart:sPart inLine:inLine inParam:inParam];
-                    // PENDING curly braces -- add 'em inside func.
-                    typeS = [NSString stringWithFormat:@"{ %@} ", typeS];
+                    typeS =  [self parseUnnamedStructOrUnionVarEndCh:endCh depth:depth sPart:sPart inLine:inLine];
+                                    typeS = [NSString stringWithFormat:@"{ %@} ", typeS];
                 } else {
                     typeS = [[NSString alloc] initWithBytes:ivT length:tmp-ivT encoding:NSUTF8StringEncoding];
                     if (typeS == nil) typeS = @"";
@@ -651,17 +614,15 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     }
     --(*depth);
     
-    return [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+    return [RTBTypeDeclaration declarationWithType:typeS modifier:modifierS];
 }
 
-//OK
-- (NSString *)parseStructOrUnionEndCh:(char)endCh depth:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
-    NSDictionary *structInfo;
+- (NSString *)parseStructOrUnionEndCh:(char)endCh depth:(int *)depth sPart:(int)sPart inLine:(BOOL)inLine spaceAfter:(BOOL)spaceAfter {
+    RTBTypeDeclaration *structInfo;
     NSMutableString *structS;
     NSMutableString *depthS = (NSMutableString *)@"";
     NSString *name = nil;
     NSString *partName = nil;
-    NSString *tmpS = nil;
     NSString *fmt1 = (spaceAfter ? @"{ %@%@} " : @"{ %@%@}");    // no space (' ') after decl for parameter)s.
     NSString *fmt2 = (spaceAfter ? @" { %@%@} " : @" { %@%@}");
     int i;
@@ -693,10 +654,9 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
             
             if (*ivT == '"' || *ivT == endCh) {
                 // the compiler did not encode the type of this field, eg. {?="f"f"v"} where v is a vector
-                structInfo = [NSDictionary dictionaryWithObjectsAndKeys:[RTB_UNKNOWN_TYPE stringByAppendingString:@" "], TYPE_LABEL, @"", MODIFIER_LABEL, nil];
+                structInfo = [RTBTypeDeclaration declarationWithType:[RTB_UNKNOWN_TYPE stringByAppendingString:@" "] modifier:@""];
             } else {
-                //structInfo = cTypeDeclForEncType(depth, sPart, YES, inLine, inParam, YES);
-                structInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:YES inLine:inLine inParam:inParam spaceAfter:YES];
+                structInfo = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:YES inLine:inLine spaceAfter:YES];
             }
             
             if (!inLine) {
@@ -706,43 +666,34 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
                 [structS appendFormat:@"\n%@", IVAR_TAB];
                 [structS appendString:depthS];
             }
-            [structS appendString:[structInfo objectForKey:TYPE_LABEL]];
+            [structS appendString:structInfo.type];
             [structS appendString:partName];
-            [structS appendString:[structInfo objectForKey:MODIFIER_LABEL]];
+            [structS appendString:structInfo.modifier];
             [structS appendString:@"; "];
         }
         if (!inLine)
             [structS appendString:@"\n"];
-    } else {  // usually means inParam == YES
-        structS = [self parseUnnamedStructOrUnionVarEndCh:endCh depth:depth sPart:sPart inLine:inLine inParam:inParam];
+    } else {  // unnamed members
+        structS = [self parseUnnamedStructOrUnionVarEndCh:endCh depth:depth sPart:sPart inLine:inLine];
     }
     
-    // PENDING... wierdness here
-    if (name == nil) // do something similar as with the 'namedStructs' (perhaps the same)
-        return [NSString stringWithFormat:fmt1, structS, depthS];
-    else { // PENDING -- do typedefs and refer to structs by name
-        tmpS = [NSString stringWithFormat:@" { %@%@}", structS, depthS];
-        [namedStructs setObject:tmpS forKey:name];
-    }
-    
+    if (name == nil) return [NSString stringWithFormat:fmt1, structS, depthS];
     return [name stringByAppendingFormat:fmt2, structS, depthS];
 }
 
-//OK
 // uses the global ivT
-// SPEED - might be faster to use a mutable dictionary.
 // depth -- how deeply nested a struct or union is
 // sPart -- which part of an outer struct we're in.
-- (NSDictionary *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
-    return [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:YES inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+- (RTBTypeDeclaration *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct inLine:(BOOL)inLine spaceAfter:(BOOL)spaceAfter {
+    return [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:YES inLine:inLine spaceAfter:spaceAfter];
 }
 
 // mayHaveClassName -- NO when a quoted string cannot be a class name, ie. after a pointer
-- (NSDictionary *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName inLine:(BOOL)inLine inParam:(BOOL)inParam spaceAfter:(BOOL)spaceAfter {
+- (RTBTypeDeclaration *)cTypeDeclForEncTypeDepth:(int *)depth sPart:(int)sPart inStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName inLine:(BOOL)inLine spaceAfter:(BOOL)spaceAfter {
     /*"
      This is the entry point for parsing encoded ivar types.
      "*/
-    NSDictionary *result;
+    RTBTypeDeclaration *result;
     NSString *type = nil;
     NSString *modifier = nil;
     NSString *typeSpec = nil;
@@ -753,12 +704,11 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     switch (*ivT) {  // what sort of thing are we parsing
         case '!' :   // "weak" pointer specifier (for new Garbage collection...).
             ++ivT; // '!' indicates a runtime (non-declarative) feature, skip it and continue
-            //result = cTypeDeclForEncType(depth, sPart, inStruct, inLine, inParam, spaceAfter);
-            result = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+            result = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine spaceAfter:spaceAfter];
             break;
         case '^' :   // Pointer to another type.
             ++ivT;
-            result = [self typeEncParsePointerTo:depth sPart:sPart inStruct:inStruct inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+            result = [self typeEncParsePointerTo:depth sPart:sPart inStruct:inStruct inLine:inLine spaceAfter:spaceAfter];
             break;
         case 'b' :   // bit field
             ++ivT;
@@ -770,27 +720,24 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
             break;
         case '[' :   // array
             ++ivT;
-            result = [self typeEncParseArrayOf:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+            result = [self typeEncParseArrayOf:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine spaceAfter:spaceAfter];
             
             closingChar = ']';  parsedTypeName = @"array ";
             break;
         case '{' :   // struct
             ++ivT;
             closingChar = '}';  parsedTypeName = @"struct ";
-            //result = typeEncParseStructOrUnion(parsedTypeName, closingChar, depth, sPart, inLine, inParam, spaceAfter);
-            result = [self typeEncParseStructOrUnionWithEncType:parsedTypeName endCh:closingChar depth:depth sPart:sPart inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+            result = [self typeEncParseStructOrUnionWithEncType:parsedTypeName endCh:closingChar depth:depth sPart:sPart inLine:inLine spaceAfter:spaceAfter];
             break;
         case '(' :   // union -- version for Yellow Box from WO 4.5, may need fixing.
             ++ivT;
             closingChar = ')';  parsedTypeName = @"union ";
-            //            result = typeEncParseStructOrUnion(parsedTypeName, closingChar, depth, sPart, inLine, inParam, spaceAfter);
-            result = [self typeEncParseStructOrUnionWithEncType:parsedTypeName endCh:closingChar depth:depth sPart:sPart inLine:inLine inParam:inParam spaceAfter:spaceAfter];
+            result = [self typeEncParseStructOrUnionWithEncType:parsedTypeName endCh:closingChar depth:depth sPart:sPart inLine:inLine spaceAfter:spaceAfter];
             break;
         default :    // a simple type or starts with a type specifier
             while (isTypeSpecifier(*ivT)) {  // prepend type specifier(s)
                 if (typeSpec == nil) typeSpec = @"";
                 typeSpec = [typeSpec stringByAppendingString:rtb_argTypeSpecifierForEncoding(*ivT)];
-                // typeSpec = [typeSpec stringByAppendingString:(inParam ? argTypeSpecifierForEnoding(*ivT) : nil)];
                 ++ivT;
             }
             
@@ -804,11 +751,11 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
                 type = [typeSpec stringByAppendingString:(spaceAfter ? [RTB_UNKNOWN_TYPE stringByAppendingString:@" "] : RTB_UNKNOWN_TYPE)];
                 modifier = @"";
             } else {
-                result = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine inParam:inParam spaceAfter:spaceAfter];
-                type = [typeSpec stringByAppendingString:[result objectForKey:TYPE_LABEL]];
-                modifier =[result objectForKey:MODIFIER_LABEL];
+                result = [self cTypeDeclForEncTypeDepth:depth sPart:sPart inStruct:inStruct mayHaveClassName:mayHaveClassName inLine:inLine spaceAfter:spaceAfter];
+                type = [typeSpec stringByAppendingString:result.type];
+                modifier =result.modifier;
             }
-            result = [NSDictionary dictionaryWithObjectsAndKeys:type, TYPE_LABEL, modifier, MODIFIER_LABEL, nil];
+            result = [RTBTypeDeclaration declarationWithType:type modifier:modifier];
             break;
     }
     if (closingChar != '\0') {
@@ -821,11 +768,9 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
         }
     }
     
-    --depth;
     return result;
 }
 
-//OK
 + (NSString *)objectTypeForQuotedName:(NSString *)name {
     /*"
      The quoted name after '@' is a class name, optionally followed by protocols, or protocols only:
@@ -871,8 +816,7 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
     return [NSString stringWithFormat:@"%@ (^)(%@)", returnType, arguments];
 }
 
-//OK
-- (NSDictionary *)typeEncParseObjectRefInStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName spaceAfter:(BOOL)spaceAfter {
+- (RTBTypeDeclaration *)typeEncParseObjectRefInStruct:(BOOL)inStruct mayHaveClassName:(BOOL)mayHaveClassName spaceAfter:(BOOL)spaceAfter {
     NSString *typeS = nil;
     NSString *modifierS = @"";
     BOOL isUnnamedType = YES;
@@ -884,7 +828,6 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
         if (tmp != NULL) {       // (should never happen) no end quote -- default to type 'id' and hope this is parsed elsewhere
             isUnnamedType = NO;    // NO --> this is a named class (type)
             NSString *name = [[NSString alloc] initWithBytes:ivT length:tmp-ivT encoding:NSUTF8StringEncoding]; // get the name
-            //            [refdClasses addObject:typeS];  // make sure it gets added to the @class ... declaration.
             typeS = [[self class] objectTypeForQuotedName:name];
             if (spaceAfter && [typeS hasSuffix:@"*"] == NO) typeS = [typeS stringByAppendingString:@" "]; // id <NSCopying>
             ivT = tmp + 1;       // moved to the end of the name and the closing quote
@@ -899,7 +842,7 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
             NSString *blockType = [self parseBlockSignature];
             if(blockType) {
                 typeS = (spaceAfter ? [blockType stringByAppendingString:@" "] : blockType);
-                return [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+                return [RTBTypeDeclaration declarationWithType:typeS modifier:modifierS];
             }
         }
         
@@ -910,17 +853,15 @@ static const char *rtb_structNameEnd(const char *p, char endCh) {
         }
     }
     
-    return [NSDictionary dictionaryWithObjectsAndKeys:typeS, TYPE_LABEL, modifierS, MODIFIER_LABEL, nil];
+    return [RTBTypeDeclaration declarationWithType:typeS modifier:modifierS];
 }
 
-//OK
-- (NSDictionary *)flatCTypeDeclForEncType:(const char*)encType {
+- (RTBTypeDeclaration *)flatCTypeDeclForEncType:(const char*)encType {
     ivT = encType;
     return [self flatCTypeDeclForEncType];
 }
 
-//OK
-- (NSDictionary *)ivarCTypeDeclForEncType:(const char*)encType {
+- (RTBTypeDeclaration *)ivarCTypeDeclForEncType:(const char*)encType {
     ivT = encType;
     return [self ivarCTypeDeclForEncType];
 }

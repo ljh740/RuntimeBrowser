@@ -34,7 +34,7 @@
     
     unsigned int outCount = 0;
     __unsafe_unretained Protocol **protocolList = protocol_copyProtocolList(p, &outCount);
-    for(int i = 0; i < outCount; i++) {
+    for(unsigned int i = 0; i < outCount; i++) {
         Protocol *adoptedProtocol = protocolList[i];
         NSString *adoptedProtocolName = [NSString stringWithCString:protocol_getName(adoptedProtocol) encoding:NSUTF8StringEncoding];
         [ma addObject:adoptedProtocolName];
@@ -112,7 +112,7 @@
     
     unsigned int outCount = 0;
     struct objc_method_description *methods = protocol_copyMethodDescriptionList(p, required, instanceMethods, &outCount);
-    for(int i = 0; i < outCount; i++) {
+    for(unsigned int i = 0; i < outCount; i++) {
         struct objc_method_description method = methods[i];
         
         NSString *name = NSStringFromSelector(method.name);

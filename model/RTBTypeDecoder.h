@@ -35,19 +35,19 @@ Boston, MA  02111-1307  USA
 
 #import <Foundation/Foundation.h>
 
+// A decoded type, in two parts because of the C declaration syntax: the modifier follows the variable name,
+// eg. "int " and "[10]" for int x[10], "unsigned int " and " : 3" for a bit field, "int (*" and ")()" for a function pointer.
+@interface RTBTypeDeclaration : NSObject
+@property (nonatomic, copy) NSString *type;
+@property (nonatomic, copy) NSString *modifier; // never nil, empty when there is none
++ (instancetype)declarationWithType:(NSString *)type modifier:(NSString *)modifier;
+@end
+
 @interface RTBTypeDecoder : NSObject {
-    NSMutableDictionary *namedStructs;
     const char* ivT; // the currently-processed Ivar type string
-    int structDepth;
-    int structPart;
-    BOOL currentWarning;
-    BOOL methodWarning;
-    BOOL showUnhandledWarning;
-    BOOL showFunctionSignatureNote;
+    BOOL currentWarning; // a warning was already issued while parsing the current type
 }
 
-@property (nonatomic, retain) NSMutableSet *refdClasses;
-@property (nonatomic, retain) NSMutableDictionary *namedStructs;
 @property (nonatomic) BOOL showCommentForBlocks;
 
 // flat:YES for method arguments and return types, eg. "struct CGRect { ... }*"
@@ -60,7 +60,7 @@ Boston, MA  02111-1307  USA
 + (NSString *)ivarDeclarationForEncodedType:(NSString *)encodedType name:(NSString *)name;
 
 // for tests
-- (NSDictionary *)flatCTypeDeclForEncType:(const char*)encType;
-- (NSDictionary *)ivarCTypeDeclForEncType:(const char*)encType;
+- (RTBTypeDeclaration *)flatCTypeDeclForEncType:(const char*)encType;
+- (RTBTypeDeclaration *)ivarCTypeDeclForEncType:(const char*)encType;
 
 @end

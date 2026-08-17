@@ -141,19 +141,13 @@
 
 - (NSString *)decodeIvarModifier:(char *)c {
     RTBTypeDecoder *td = [[RTBTypeDecoder alloc] init];
-    NSDictionary *d = [td ivarCTypeDeclForEncType:c];
-    return [d valueForKey:@"modifier"];
+    return [td ivarCTypeDeclForEncType:c].modifier;
 }
 
 - (NSString *)decodeIvarWithName:(NSString *)name type:(char *)c {
-
     RTBTypeDecoder *td = [[RTBTypeDecoder alloc] init];
-    NSDictionary *d = [td ivarCTypeDeclForEncType:c];
-    
-    NSString *t = [d valueForKey:@"type"];
-    NSString *m = [d valueForKey:@"modifier"];
-    
-    return [NSString stringWithFormat:@"%@%@%@;", t, name, m];
+    RTBTypeDeclaration *d = [td ivarCTypeDeclForEncType:c];
+    return [NSString stringWithFormat:@"%@%@%@;", d.type, name, d.modifier];
 }
 
 - (NSString *)contentsForResource:(NSString *)name ofType:(NSString *)type {
