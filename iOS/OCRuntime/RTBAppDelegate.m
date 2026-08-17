@@ -8,6 +8,7 @@
 
 #import "RTBAppDelegate.h"
 #import "RTBBundleLoadGuard.h"
+#import "RTBAlert.h"
 
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -435,12 +436,7 @@
         if(success == NO) {
             NSLog(@"Error starting HTTP Server.");
             
-            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Error starting HTTP Server"
-                                                            message:@""
-                                                           delegate:nil
-                                                  cancelButtonTitle:@"OK"
-                                                  otherButtonTitles:nil];
-            [alert show];
+            [RTBAlert showAlertWithTitle:@"Error starting HTTP Server" message:@""];
             
             [self.webServer stop];
             self.webServer = nil;
@@ -476,14 +472,8 @@
     // did the previous run crash while loading a framework?
     NSString *crashedBundlePath = [RTBBundleLoadGuard bundlePathThatCrashedPreviousLaunch];
     if(crashedBundlePath) {
-        __weak typeof(self) weakSelf = self;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            NSString *message = [NSString stringWithFormat:@"Loading %@ crashed the app.\n\nLoad All will skip it from now on. Tap it in the Frameworks tab to try again.", [crashedBundlePath lastPathComponent]];
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Framework Skipped" message:message preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-            [strongSelf.window.rootViewController presentViewController:alert animated:YES completion:nil];
-        });
+        NSString *message = [NSString stringWithFormat:@"Loading %@ crashed the app.\n\nLoad All will skip it from now on. Tap it in the Frameworks tab to try again.", [crashedBundlePath lastPathComponent]];
+        [RTBAlert showAlertWithTitle:@"Framework Skipped" message:message];
     }
     
     return YES;

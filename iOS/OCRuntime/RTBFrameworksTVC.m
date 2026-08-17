@@ -13,6 +13,7 @@
 #import "RTBInfoVC.h"
 #import "RTBAppDelegate.h"
 #import "RTBBundleLoadGuard.h"
+#import "RTBAlert.h"
 
 static const NSUInteger kPublicFrameworks = 0;
 static const NSUInteger kPrivateFrameworks = 1;
@@ -90,10 +91,7 @@ static const NSUInteger kPrivateFrameworks = 1;
             NSString *alertTitle = [NSString stringWithFormat:@"Error: could not load %@.", name];
             NSString *alertMessage = error ? [error localizedFailureReason] : @"The framework could not be loaded.";
             
-            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:alertTitle
-                                                            message:alertMessage
-                                                           delegate:self cancelButtonTitle:@"OK" otherButtonTitles: nil];
-            [alert show];
+            [RTBAlert showAlertWithTitle:alertTitle message:alertMessage];
             return;
         }
         
@@ -162,19 +160,12 @@ static const NSUInteger kPrivateFrameworks = 1;
         for(NSBundle *b in allFrameworks) {
             NSString *bundlePath = [b bundlePath];
 #if TARGET_IPHONE_SIMULATOR
-            if (NSFoundationVersionNumber < NSFoundationVersionNumber_iOS_8_0
-                && [bundlePath hasSuffix:@"/System/Library/PrivateFrameworks/Safari.framework"]) {
-                NSLog(@"-- skip %@, known to be a crasher on simulator", bundlePath);
-                continue;
-            
-            }
-            if (NSFoundationVersionNumber >= 1400
-                && [bundlePath hasSuffix:@"/System/Library/PrivateFrameworks/Spotlight.framework"]) {
+            if ([bundlePath hasSuffix:@"/System/Library/PrivateFrameworks/Spotlight.framework"]) {
                 NSLog(@"-- skip %@, known to be a crasher on simulator", bundlePath);
                 continue;
             }
 #else
-            if (NSFoundationVersionNumber >= 1400) {
+            {
                 static NSSet *skipedFrameworks = nil;
                 if (!skipedFrameworks) {
                     skipedFrameworks = [NSSet setWithObjects:
@@ -327,7 +318,7 @@ static const NSUInteger kPrivateFrameworks = 1;
 	self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
 	self.definesPresentationContext = YES;
 	self.searchController.searchResultsUpdater = self;
-	self.searchController.dimsBackgroundDuringPresentation = NO;
+	self.searchController.obscuresBackgroundDuringPresentation = NO;
     self.searchController.hidesNavigationBarDuringPresentation = NO;
 	self.tableView.tableHeaderView = self.searchController.searchBar;
     

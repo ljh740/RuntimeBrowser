@@ -72,7 +72,6 @@
     
 	// Set up the cell
 	RTBClass *cs = [_classStubs objectAtIndex:indexPath.row];
-#warning TODO: cs.class = ..
     cell.className = cs.classObjectName;
     cell.displayName = cs.displayName;
 	cell.accessoryType = [[cs subclassesStubs] count] > 0 ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;

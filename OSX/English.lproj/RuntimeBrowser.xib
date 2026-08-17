@@ -72,7 +72,7 @@
                                                     <textView importsGraphics="NO" findStyle="panel" allowsDocumentBackgroundColorChange="YES" usesFontPanel="YES" verticallyResizable="YES" textReplacement="YES" smartInsertDelete="YES" id="155">
                                                         <rect key="frame" x="0.0" y="0.0" width="586" height="468"/>
                                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                                        <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                                                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                         <size key="minSize" width="592" height="468"/>
                                                         <size key="maxSize" width="609" height="10000000"/>
                                                         <color key="insertionPointColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
@@ -83,7 +83,7 @@
                                                         </connections>
                                                     </textView>
                                                 </subviews>
-                                                <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                             </clipView>
                                             <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" doubleValue="0.98293513059616089" horizontal="YES" id="272">
                                                 <rect key="frame" x="-100" y="-100" width="87" height="18"/>

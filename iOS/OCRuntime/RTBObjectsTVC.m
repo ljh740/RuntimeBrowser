@@ -9,7 +9,7 @@
 #import "RTBObjectsTVC.h"
 #import "RTBMethodCell.h"
 #import "RTBRuntimeHeader.h"
-#import "UIAlertView+Blocks.h"
+#import "RTBAlert.h"
 #import "RTBMethod.h"
 #import "RTBRuntime.h"
 #import "RTBClass.h"
@@ -67,12 +67,7 @@
     [super viewWillAppear:animated];
     
     if(!_object) {
-        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"No class!"
-                                                        message:@"Open a class header file\nand you'll be able to use it."
-                                                       delegate:nil
-                                              cancelButtonTitle:@"OK"
-                                              otherButtonTitles:nil];
-        [alert show];
+        [RTBAlert showAlertWithTitle:@"No class!" message:@"Open a class header file\nand you'll be able to use it."];
         
         return;
     }
@@ -168,12 +163,12 @@
         
         __weak typeof(self) weakSelf = self;
         
-        for (NSString *objects in [params reverseObjectEnumerator]) {
-            // Need to fill in the parameters to run the argument
-            [UIAlertView rtb_displayAlertWithTitle:objects
-                                           message:headerDescription
-                                   leftButtonTitle:@"Cancel"
-                                  leftButtonAction:^{
+        for (NSString *objects in params) {
+            // Need to fill in the parameters to run the argument, one alert per parameter, in order
+            [RTBAlert showTextInputAlertWithTitle:objects
+                                          message:headerDescription
+                                      cancelTitle:@"Cancel"
+                                     cancelAction:^{
                                       // Add nil parameter to the parameters array
                                       
                                       __strong typeof(weakSelf) strongSelf = weakSelf;
@@ -199,8 +194,8 @@
                                       [strongSelf.paramsToAdd addObject:@""];
                                       [strongSelf.paramsToRemove addObject:objects];
                                   }
-                                  rightButtonTitle:@"Enter"
-                                 rightButtonAction:^(NSString *output){
+                                          okTitle:@"Enter"
+                                         okAction:^(NSString *output){
                                      // Add this parameter to the parameters array
                                      
                                      __strong typeof(weakSelf) strongSelf = weakSelf;
@@ -374,12 +369,7 @@
     }
     @catch (NSException *exception) {
         NSLog(@"Exception!  Broke this:  %@", exception);
-        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Error"
-                                                        message:[exception description]
-                                                       delegate:nil
-                                              cancelButtonTitle:@"OK"
-                                              otherButtonTitles:nil];
-        [alert show];
+        [RTBAlert showAlertWithTitle:@"Error" message:[exception description]];
     }
     
 #pragma clang diagnostic pop
@@ -392,27 +382,16 @@
     }
     
     if(![returnTypeDecodedString isEqualToString:@"id"]) {
-        if([returnTypeDecodedString isEqualToString:@"NSInteger"] || [returnTypeDecodedString isEqualToString:@"NSUInteger"] || [returnTypeDecodedString hasSuffix:@"int"]) {
-//            o = [NSString stringWithFormat:@"%d", (int)o];
-        } else if([returnTypeDecodedString isEqualToString:@"double"] || [returnTypeDecodedString isEqualToString:@"float"]) {
-//            o = [NSString stringWithFormat:@"%f", o];
-        } else if([returnTypeDecodedString isEqualToString:@"BOOL"]) {
-//            o = ([o boolValue]) ? @"YES" : @"NO";
-        } else if ([returnTypeDecodedString isEqualToString:@"void"]) {
+        if ([returnTypeDecodedString isEqualToString:@"void"]) {
             o = @"Completed";
         } else {
-            o = [NSString stringWithFormat:@"%d",(int) o]; // default
+            o = [o description]; // the scalar results were converted to strings above
         }
     }
     
     if([o isKindOfClass:[NSString class]] || [o isKindOfClass:[NSArray class]] || [o isKindOfClass:[NSDictionary class]] || [o isKindOfClass:[NSSet class]]) {
         
-        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@""
-                                                        message:[o description]
-                                                       delegate:nil
-                                              cancelButtonTitle:@"OK"
-                                              otherButtonTitles:nil];
-        [alert show];
+        [RTBAlert showAlertWithTitle:@"" message:[o description]];
         
         return;
     }
@@ -691,14 +670,11 @@
             
             [inv retainArguments];
             
-            CFTypeRef result;
+            // a scalar result is read as a pointer-sized value
+            intptr_t result = 0;
             [inv invoke];
             [inv getReturnValue:&result];
-            if (result) {
-                CFRetain(result);
-                int i = (int)result;
-                o = [NSNumber numberWithInt:i];
-            }
+            o = [NSNumber numberWithLong:(long)result];
         } else {
             NSLog(@"-[%@ performSelector:@selector(%@)] shouldn't be used. The selector doesn't return an object or void", _object, NSStringFromSelector(selector));
             return;
@@ -706,12 +682,7 @@
     }
     @catch (NSException *exception) {
         NSLog(@"Exception!  Broke this:  %@", exception);
-        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Error"
-                                                        message:[exception description]
-                                                       delegate:nil
-                                              cancelButtonTitle:@"OK"
-                                              otherButtonTitles:nil];
-        [alert show];
+        [RTBAlert showAlertWithTitle:@"Error" message:[exception description]];
     }
     
     // Verify the output is good
@@ -722,27 +693,20 @@
     }
     
     if(![returnTypeDecoded isEqualToString:@"id"]) {
-        if([returnTypeDecoded isEqualToString:@"NSInteger"] || [returnTypeDecoded isEqualToString:@"NSUInteger"] || [returnTypeDecoded hasSuffix:@"int"]) {
-            o = [NSString stringWithFormat:@"%d", (int)o];
-        } else if([returnTypeDecoded isEqualToString:@"double"] || [returnTypeDecoded isEqualToString:@"float"]) {
+        if([returnTypeDecoded isEqualToString:@"double"] || [returnTypeDecoded isEqualToString:@"float"]) {
             o = [NSString stringWithFormat:@"%f", [o floatValue]];
         } else if([returnTypeDecoded isEqualToString:@"BOOL"]) {
             o = ([o boolValue]) ? @"YES" : @"NO";
         } else if ([returnTypeDecoded isEqualToString:@"void"]) {
             o = @"Completed";
         } else {
-            o = [NSString stringWithFormat:@"%d", (int)o]; // default
+            o = [o description]; // integers and the rest, o is an NSNumber
         }
     }
     
     if([o isKindOfClass:[NSString class]] || [o isKindOfClass:[NSArray class]] || [o isKindOfClass:[NSDictionary class]] || [o isKindOfClass:[NSSet class]]) {
         
-        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@""
-                                                        message:[o description]
-                                                       delegate:nil
-                                              cancelButtonTitle:@"OK"
-                                              otherButtonTitles:nil];
-        [alert show];
+        [RTBAlert showAlertWithTitle:@"" message:[o description]];
         
         return;
     }

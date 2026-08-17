@@ -57,13 +57,17 @@ char **stringArrayFromNSArray(NSArray *a) {
 
 - (NSAttributedString *)colorizeWithKeywords:(NSArray *)keywords classes:(NSArray *)classes colorize:(BOOL)colorize {
     
+    // dynamic colors, so that the text is readable in dark mode too
 #if TARGET_OS_IPHONE
     UIFont *font = [UIFont fontWithName:@"Courier" size:12.0];
+    UIColor *textColor = [UIColor blackColor];
+    if (@available(iOS 13.0, *)) textColor = [UIColor labelColor];
 #else
     NSFont *font = [NSFont fontWithName:@"Courier" size:12.0];
+    NSColor *textColor = [NSColor textColor];
 #endif
     
-    NSDictionary *attributes = @{ NSFontAttributeName : font };
+    NSDictionary *attributes = @{ NSFontAttributeName : font, NSForegroundColorAttributeName : textColor };
     
     NSMutableAttributedString *attributedString = [[NSMutableAttributedString alloc] initWithString:self attributes:attributes];
     
@@ -79,13 +83,13 @@ char **stringArrayFromNSArray(NSArray *a) {
     char *tmp = (char *)text;
     
 #if TARGET_OS_IPHONE
-    UIColor *commentsColor = [UIColor colorWithRed:0.0 green:119.0/255 blue:0.0 alpha:1.0];
-    UIColor *keywordsColor = [UIColor colorWithRed:193.0/255 green:0.0 blue:145./255 alpha:1.0];
-    UIColor *classesColor = [UIColor colorWithRed:103.0/255 green:31.0/255 blue:155./255 alpha:1.0];
+    UIColor *commentsColor = [UIColor systemGreenColor];
+    UIColor *keywordsColor = [UIColor systemPinkColor];
+    UIColor *classesColor = [UIColor systemPurpleColor];
 #else
-    NSColor *commentsColor = [NSColor colorWithCalibratedRed:0.0 green:119.0/255 blue:0.0 alpha:1.0];
-    NSColor *keywordsColor = [NSColor colorWithCalibratedRed:193.0/255 green:0.0 blue:145./255 alpha:1.0];
-    NSColor *classesColor = [NSColor colorWithCalibratedRed:103.0/255 green:31.0/255 blue:155./255 alpha:1.0];
+    NSColor *commentsColor = [NSColor systemGreenColor];
+    NSColor *keywordsColor = [NSColor systemPinkColor];
+    NSColor *classesColor = [NSColor systemPurpleColor];
 #endif
     //NSColor *typesColor = [NSColor colorWithCalibratedRed:53.0/255 green:0.0/255 blue:111./255 alpha:1.0];
     

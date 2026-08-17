@@ -52,7 +52,7 @@
 }
 
 - (IBAction)openWebSiteAction:(id)sender {
-	[[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://github.com/nst/RuntimeBrowser/"]];
+	[[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://github.com/nst/RuntimeBrowser/"] options:@{} completionHandler:nil];
 }
 
 - (void)didReceiveMemoryWarning {
