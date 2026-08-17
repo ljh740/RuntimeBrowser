@@ -14,6 +14,8 @@
 #import "RTBClass.h"
 #import "RTBProtocol.h"
 #import "RTBSwift.h"
+#import "RTBCategories.h"
+#import "RTBMethod.h"
 
 #define UNIT_TESTS 1
 
@@ -70,6 +72,17 @@
 - (void)vector:(simd_float4)vector {}
 - (const char *)constChar:(const void *)p ptr:(int *)ip fn:(int (*)(void))fn { return NULL; }
 - (void)structArg:(CGRect)r sel:(SEL)s cls:(Class)c bool:(BOOL)b { }
+@end
+
+// a category on a class of another image: the linker merges the categories of the classes of the same image
+@interface NSObject (RTBTestCategory)
+- (void)rtb_categoryInstanceMethod;
++ (void)rtb_categoryClassMethod;
+@end
+
+@implementation NSObject (RTBTestCategory)
+- (void)rtb_categoryInstanceMethod {}
++ (void)rtb_categoryClassMethod {}
 @end
 
 @interface UnitTests : XCTestCase
@@ -632,6 +645,29 @@
         XCTAssertTrue([swift containsSearchString:@"Swift.Optional<Swift.Double>"]); // Swift field type
         XCTAssertFalse([swift containsSearchString:@"zzzznotfound"]);
     }
+}
+
+- (void)testCategoriesFromTheCategoryLists {
+    // the test bundle is not in the shared cache, its category lists are intact
+    Method instanceMethod = class_getInstanceMethod([NSObject class], @selector(rtb_categoryInstanceMethod));
+    Method classMethod = class_getClassMethod([NSObject class], @selector(rtb_categoryClassMethod));
+    Method baseMethod = class_getInstanceMethod([RTBTestClass class], @selector(fetchWithCompletion:));
+    XCTAssertEqualObjects([RTBCategories categoryNameForMethod:instanceMethod], @"RTBTestCategory");
+    XCTAssertEqualObjects([RTBCategories categoryNameForMethod:classMethod], @"RTBTestCategory");
+    XCTAssertNil([RTBCategories categoryNameForMethod:baseMethod]);
+    XCTAssertNil([RTBCategories categoryNameForMethod:NULL]);
+    
+    // the shared cache merges the categories of a class, only the symbols remember them
+    Method valueForKey = class_getInstanceMethod([NSObject class], @selector(valueForKey:));
+    XCTAssertNil([RTBCategories categoryNameForMethod:valueForKey]);
+    
+    RTBMethod *m = [RTBMethod methodObjectWithMethod:instanceMethod isClassMethod:NO];
+    XCTAssertEqualObjects([m categoryName], @"RTBTestCategory");
+    
+    NSString *header = [RTBRuntimeHeader headerForClass:[NSObject class] displayPropertiesDefaultValues:NO];
+    [self assertHeader:header containsLine:@"// NSObject (RTBTestCategory)"];
+    [self assertHeader:header containsLine:@"+ (void)rtb_categoryClassMethod;"];
+    [self assertHeader:header containsLine:@"- (void)rtb_categoryInstanceMethod;"];
 }
 
 - (void)testSortedAdoptedProtocolsNames {

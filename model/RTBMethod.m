@@ -8,6 +8,7 @@
 
 #import "RTBMethod.h"
 #import "RTBRuntimeHeader.h"
+#import "RTBCategories.h"
 #include "dlfcn.h"
 
 #import "RTBTypeDecoder.h"
@@ -64,12 +65,18 @@
     NSString *symbolName = info.dli_sname ? [NSString stringWithFormat:@"%s", info.dli_sname] : @"";
 #endif
     
+    // the category is in the symbol name, eg. -[NSObject(NSKeyValueCoding) valueForKey:]
     NSString *categoryName = nil;
     
     NSUInteger startIndex = [symbolName rangeOfString:@"("].location;
     NSUInteger stopIndex = [symbolName rangeOfString:@")"].location;
     if(startIndex != NSNotFound && stopIndex != NSNotFound && startIndex < stopIndex) {
         categoryName = [symbolName substringWithRange:NSMakeRange(startIndex+1, (stopIndex - startIndex)-1)];
+    }
+    
+    // without symbols, the category lists of the images outside of the shared cache still tell
+    if(categoryName == nil) {
+        categoryName = [RTBCategories categoryNameForMethod:_method];
     }
     
     NSMutableDictionary *md = [NSMutableDictionary dictionaryWithCapacity:2];
