@@ -16,6 +16,7 @@
 #import "RTBProtocol.h"
 #import "RTBSwift.h"
 #import "RTBSwiftTypes.h"
+#import "RTBSwiftRuntime.h"
 #import "RTBCategories.h"
 #import "RTBMethod.h"
 
@@ -558,6 +559,15 @@
     // the search finds the demangled name
     XCTAssertTrue([cs containsSearchString:@"TimerPublisher"]);
     XCTAssertTrue([cs containsSearchString:@"Swift.Optional<Swift.Double>"]);
+}
+
+- (void)testSwiftClassFieldsWithMissingSymbols {
+    // the runtime aborts when it resolves a field type through a missing weak symbol, such fields are read from the field
+    // descriptor instead; the types stored by the Foundation overlay classes are all present
+    Class timerPublisher = NSClassFromString(@"_TtCE10FoundationCSo7NSTimer14TimerPublisher");
+    if(timerPublisher != nil) XCTAssertEqualObjects(rtb_swiftClassFieldsWithMissingSymbols(timerPublisher), @{});
+    XCTAssertEqualObjects(rtb_swiftClassFieldsWithMissingSymbols([RTBTestClass class]), @{}); // not a Swift class
+    XCTAssertEqualObjects(rtb_swiftClassFieldsWithMissingSymbols(Nil), @{});
 }
 
 - (void)testSwiftClassWithObjCName {

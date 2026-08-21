@@ -191,6 +191,7 @@ static const NSUInteger kPrivateFrameworks = 1;
                                         @"/System/Library/PrivateFrameworks/SpringBoardUI.framework",
                                         @"/System/Library/PrivateFrameworks/UserNotificationsUIKit.framework",
                                         @"/System/Library/PrivateFrameworks/VoiceShortcutsUI.framework",//ios 13.3
+                                        @"/System/Library/PrivateFrameworks/ActionKit.framework", // iOS 26: asserts in +[WFActionKitStaticInitializer load]
                                         nil];
                 }
                 if ([skipedFrameworks containsObject:bundlePath]) {

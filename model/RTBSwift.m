@@ -383,7 +383,17 @@ NSArray *rtb_swiftSortedMembers(NSString *typeName, NSString *mangledNominalName
     Class superclass = class_getSuperclass(klass);
     intptr_t superclassCount = rtb_classHasSwiftMetadata(superclass) ? rtb_swift_reflectionMirror_recursiveCount((__bridge const void *)superclass) : 0;
     
+    // the runtime aborts on the fields whose type goes through a missing weak symbol, they are read from the field descriptor
+    NSDictionary *unresolvableFields = rtb_swiftClassFieldsWithMissingSymbols(klass);
+
     for(intptr_t i = superclassCount; i < count; i++) {
+        NSDictionary *unresolvableField = unresolvableFields[@(i - superclassCount)];
+        if(unresolvableField) {
+            NSString *name = unresolvableField[@"name"];
+            if(md[name] == nil) md[name] = @{@"type": @"?", @"isVar": unresolvableField[@"isVar"], @"isStrong": unresolvableField[@"isStrong"]};
+            continue;
+        }
+
         RTBSwiftFieldReflectionMetadata fieldMetadata = {0};
         const void *fieldType = rtb_swift_reflectionMirror_recursiveChildMetadata(metadata, i, &fieldMetadata, &fieldMetadata.freeFunc);
         

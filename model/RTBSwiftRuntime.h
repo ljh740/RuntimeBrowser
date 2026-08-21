@@ -54,3 +54,10 @@ NSArray *rtb_swiftSymbolNamesWithPrefix(const void *imageBase, NSString *prefix)
 
 // The members of a type from the symbols of its image, as sorted Swift declarations, see RTBSwift +sortedMembersOfClass:
 NSArray *rtb_swiftSortedMembers(NSString *typeName, NSString *mangledNominalName, const void *imageBase);
+
+// The stored properties of a Swift class whose types the runtime must not be asked to resolve: their mangled type
+// names go through a NULL pointer (an indirect symbolic reference to a missing weak symbol, typically a type of a
+// framework absent from the device), and swift_getTypeByMangledName() and the reflection mirror abort on them with
+// "Failed to look up symbolic reference". The index of the field among the class's own fields -> what the field
+// descriptor tells: @{@"name": ..., @"isVar": ..., @"isStrong": ...}. Empty when the metadata cannot be read.
+NSDictionary *rtb_swiftClassFieldsWithMissingSymbols(Class klass);

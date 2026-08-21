@@ -253,6 +253,27 @@ static size_t rtb_mangledNameLength(const char *s, const RTBImage *image) {
     return 0;
 }
 
+// YES if the Swift runtime would abort resolving this mangled type name: an indirect symbolic reference (0x02) goes
+// through a pointer, bound by dyld, which is NULL, ie. a missing weak symbol, typically a type of a framework absent
+// from the device. swift_getTypeByMangledName() and the reflection mirror then die with "Failed to look up symbolic
+// reference" (swift::fatalError, not catchable), so such a name must be demangled without the runtime.
+static BOOL rtb_mangledNameHasMissingSymbol(const RTBImage *image, const char *mangled, size_t length) {
+    for(size_t i = 0; i < length; ) {
+        unsigned char c = (unsigned char)mangled[i];
+        if(c == 0x02) {
+            if(i + 5 > length) return YES;
+            int32_t offset;
+            memcpy(&offset, mangled + i + 1, sizeof(offset));
+            const void * const *slot = (const void * const *)(mangled + i + 1 + offset);
+            if(!rtb_imageContains(image, slot, sizeof(void *)) || *slot == NULL) return YES;
+            i += 5;
+        } else if(c >= 0x01 && c <= 0x17) i += 5;
+        else if(c >= 0x18 && c <= 0x1F) i += 9;
+        else i++;
+    }
+    return NO;
+}
+
 /*
  A mangled name found in the metadata, with the symbolic references to context descriptors (kinds 1 direct
  and 2 indirect) spelled out as text, so that the demangler can read it. nil for the other kinds of references.
@@ -509,7 +530,7 @@ static NSString *rtb_typeNameForMangledFieldType(const RTBImage *image, const ch
     size_t length = rtb_mangledNameLength(mangled, image);
     if(length == 0) return nil;
 
-    if(contextIsGeneric == NO && rtb_swift_getTypeByMangledNameInContext != NULL) {
+    if(contextIsGeneric == NO && rtb_swift_getTypeByMangledNameInContext != NULL && rtb_mangledNameHasMissingSymbol(image, mangled, length) == NO) {
         const void *metadata = rtb_swift_getTypeByMangledNameInContext(mangled, length, context, NULL);
         NSString *name = rtb_swiftTypeName(metadata);
         if(name) return name;
@@ -728,22 +749,45 @@ static NSString *rtb_mangledDescriptorName(const RTBImage *image, const uint32_t
 
 #pragma mark Fields, cases and requirements
 
-// the fields of a struct or class, the cases of an enum, from the field descriptor:
+// The field descriptor of a nominal type descriptor, NULL if absent or unreadable. The 16-byte header is followed by *numFields records of 12 bytes:
 // FieldDescriptor { int32 MangledTypeName; int32 Superclass; uint16 Kind; uint16 FieldRecordSize; uint32 NumFields; FieldRecord[] { uint32 Flags; int32 MangledTypeName; int32 FieldName; } }
+static const uint32_t *rtb_fieldDescriptor(const RTBImage *image, const uint32_t *descriptor, uint32_t *numFields) {
+    const uint32_t *fieldDescriptor = rtb_relativePointer(image, (const int32_t *)&descriptor[4], 16);
+    if(fieldDescriptor == NULL) return NULL;
+    uint16_t recordSize = *(const uint16_t *)((const uint8_t *)fieldDescriptor + 10);
+    uint32_t count = fieldDescriptor[3];
+    if(recordSize != 12 || count > 10000) return NULL;
+    if(!rtb_imageContains(image, fieldDescriptor, 16 + (size_t)count * recordSize)) return NULL;
+    *numFields = count;
+    return fieldDescriptor;
+}
+
+static const int32_t *rtb_fieldRecord(const uint32_t *fieldDescriptor, uint32_t index) {
+    return (const int32_t *)((const uint8_t *)fieldDescriptor + 16 + index * 12);
+}
+
+// YES if the runtime can be asked for the types of the fields, see rtb_mangledNameHasMissingSymbol()
+static BOOL rtb_runtimeCanResolveFields(const RTBImage *image, const uint32_t *fieldDescriptor, uint32_t numFields) {
+    for(uint32_t i = 0; i < numFields; i++) {
+        const char *mangledType = rtb_relativePointer(image, &rtb_fieldRecord(fieldDescriptor, i)[1], 1);
+        size_t length = mangledType ? rtb_mangledNameLength(mangledType, image) : 0;
+        if(length && rtb_mangledNameHasMissingSymbol(image, mangledType, length)) return NO;
+    }
+    return YES;
+}
+
+// the fields of a struct or class, the cases of an enum, from the field descriptor
 - (NSArray *)fieldLines {
     NSMutableArray *lines = [NSMutableArray array];
     const RTBImage *image = &_image;
 
-    const uint32_t *fieldDescriptor = rtb_relativePointer(image, (const int32_t *)&_descriptor[4], 16);
+    uint32_t numFields = 0;
+    const uint32_t *fieldDescriptor = rtb_fieldDescriptor(image, _descriptor, &numFields);
     if(fieldDescriptor == NULL) return lines;
-    uint16_t recordSize = *(const uint16_t *)((const uint8_t *)fieldDescriptor + 10);
-    uint32_t numFields = fieldDescriptor[3];
-    if(recordSize != 12 || numFields > 10000) return lines;
-    if(!rtb_imageContains(image, fieldDescriptor, 16 + (size_t)numFields * recordSize)) return lines;
 
     // the runtime knows the fields of the non-generic structs and classes best, when it has records for them:
     // the imported C++ structs declare stored properties without records, the runtime would read past the field descriptor
-    if(_metadata && _kind != RTBSwiftTypeKindEnum && rtb_swift_reflectionMirror_recursiveCount && rtb_swift_reflectionMirror_recursiveChildMetadata) {
+    if(_metadata && _kind != RTBSwiftTypeKindEnum && rtb_swift_reflectionMirror_recursiveCount && rtb_swift_reflectionMirror_recursiveChildMetadata && rtb_runtimeCanResolveFields(image, fieldDescriptor, numFields)) {
         intptr_t count = rtb_swift_reflectionMirror_recursiveCount(_metadata);
         if(count >= 0 && count <= numFields) {
             for(intptr_t i = 0; i < count; i++) {
@@ -759,7 +803,7 @@ static NSString *rtb_mangledDescriptorName(const RTBImage *image, const uint32_t
     }
 
     for(uint32_t i = 0; i < numFields; i++) {
-        const int32_t *record = (const int32_t *)((const uint8_t *)fieldDescriptor + 16 + i * recordSize);
+        const int32_t *record = rtb_fieldRecord(fieldDescriptor, i);
         uint32_t flags = (uint32_t)record[0]; // 1: indirect case, 2: var
         const char *mangledType = rtb_relativePointer(image, &record[1], 1);
         NSString *name = rtb_cString(image, rtb_relativePointer(image, &record[2], 1));
@@ -1107,6 +1151,11 @@ static NSString *rtb_mangledDescriptorName(const RTBImage *image, const uint32_t
     return result;
 }
 
+// the nominal type descriptor of a Swift class, see TargetClassMetadata: after isa, superclass, the cache, the data and 24 bytes of flags and sizes
+static const uint32_t *rtb_descriptorOfClass(Class klass) {
+    return *(const uint32_t * const *)((const uint8_t *)(__bridge const void *)klass + 5 * sizeof(void *) + 24);
+}
+
 + (NSArray *)conformancesOfDescriptor:(const void *)descriptor {
     if(descriptor == NULL) return @[];
     NSArray *names = [self conformanceIndex][[NSValue valueWithPointer:descriptor]];
@@ -1120,7 +1169,7 @@ static NSString *rtb_mangledDescriptorName(const RTBImage *image, const uint32_t
 
     // Swift classes: by their descriptor
     if([RTBSwift classHasSwiftMetadata:klass]) {
-        const void *descriptor = *(const void * const *)((const uint8_t *)(__bridge const void *)klass + 5 * sizeof(void *) + 24); // see TargetClassMetadata
+        const void *descriptor = rtb_descriptorOfClass(klass);
         for(NSString *name in index[[NSValue valueWithPointer:descriptor]]) if([names containsObject:name] == NO) [names addObject:name];
     }
     // Objective-C classes with Swift extensions: by name
@@ -1132,3 +1181,29 @@ static NSString *rtb_mangledDescriptorName(const RTBImage *image, const uint32_t
 }
 
 @end
+
+#pragma mark - Fields of the classes
+
+NSDictionary *rtb_swiftClassFieldsWithMissingSymbols(Class klass) {
+    NSMutableDictionary *fields = [NSMutableDictionary dictionary];
+    if(klass == Nil || [RTBSwift classHasSwiftMetadata:klass] == NO) return fields;
+
+    const uint32_t *descriptor = rtb_descriptorOfClass(klass);
+    RTBImage image = rtb_imageContainingAddress(descriptor);
+    uint32_t numFields = 0;
+    const uint32_t *fieldDescriptor = rtb_fieldDescriptor(&image, descriptor, &numFields);
+    if(fieldDescriptor == NULL) return fields;
+
+    for(uint32_t i = 0; i < numFields; i++) {
+        const int32_t *record = rtb_fieldRecord(fieldDescriptor, i);
+        const char *mangledType = rtb_relativePointer(&image, &record[1], 1);
+        size_t length = mangledType ? rtb_mangledNameLength(mangledType, &image) : 0;
+        if(length == 0 || rtb_mangledNameHasMissingSymbol(&image, mangledType, length) == NO) continue;
+        NSString *name = rtb_cString(&image, rtb_relativePointer(&image, &record[2], 1));
+        if(name == nil) continue;
+        char ownership = length >= 2 && mangledType[length - 2] == 'X' ? mangledType[length - 1] : 0; // Xw weak, Xo unowned, Xu unmanaged
+        BOOL isStrong = !(ownership == 'w' || ownership == 'o' || ownership == 'u');
+        fields[@(i)] = @{@"name": name, @"isVar": @((record[0] & 2) != 0), @"isStrong": @(isStrong)};
+    }
+    return fields;
+}
