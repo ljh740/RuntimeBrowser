@@ -17,3 +17,7 @@ build/*
 *.pbxuser
 *.xcworkspace
 xcuserdata
+iOS/build
+OSX/build
+runtime_cli/build
+OSX/dist
