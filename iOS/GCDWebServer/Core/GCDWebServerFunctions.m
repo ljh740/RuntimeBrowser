@@ -182,11 +182,13 @@ NSString* GCDWebServerGetMimeTypeForExtension(NSString* extension) {
 }
 
 NSString* GCDWebServerEscapeURLString(NSString* string) {
-  return CFBridgingRelease(CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault, (CFStringRef)string, NULL, CFSTR(":@/?&=+"), kCFStringEncodingUTF8));
+  NSMutableCharacterSet* allowedCharacters = [[NSCharacterSet URLPathAllowedCharacterSet] mutableCopy];
+  [allowedCharacters removeCharactersInString:@":@/?&=+"];
+  return [string stringByAddingPercentEncodingWithAllowedCharacters:allowedCharacters];
 }
 
 NSString* GCDWebServerUnescapeURLString(NSString* string) {
-  return CFBridgingRelease(CFURLCreateStringByReplacingPercentEscapesUsingEncoding(kCFAllocatorDefault, (CFStringRef)string, CFSTR(""), kCFStringEncodingUTF8));
+  return [string stringByRemovingPercentEncoding];
 }
 
 NSDictionary* GCDWebServerParseURLEncodedForm(NSString* form) {

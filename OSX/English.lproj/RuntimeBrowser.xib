@@ -32,7 +32,7 @@
                                     <rect key="frame" x="0.0" y="0.0" width="619" height="207"/>
                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                     <subviews>
-                                        <browser verticalHuggingPriority="750" allowsExpansionToolTips="YES" enabled="YES" hasHorizontalScroller="YES" allowsEmptySelection="YES" defaultColumnWidth="100" minColumnWidth="1" maxVisibleColumns="3" titled="YES" separatesColumns="YES" allowsTypeSelect="YES" columnsAutosaveName="RBBrowser" columnResizingType="auto" id="157">
+                                        <browser verticalHuggingPriority="750" allowsExpansionToolTips="YES" enabled="YES" hasHorizontalScroller="YES" allowsEmptySelection="YES" titled="YES" separatesColumns="YES" allowsTypeSelect="YES" id="157" customClass="RTBClassBrowser">
                                             <rect key="frame" x="5" y="5" width="609" height="204"/>
                                             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                             <connections>
@@ -142,7 +142,6 @@
                             </segmentedCell>
                             <connections>
                                 <action selector="changeViewTypeFromSegmentedControl:" target="137" id="328"/>
-                                <binding destination="210" name="selectedIndex" keyPath="values.ViewType" id="305"/>
                             </connections>
                         </segmentedControl>
                     </toolbarItem>
@@ -150,7 +149,7 @@
                         <nil key="toolTip"/>
                         <size key="minSize" width="96" height="22"/>
                         <size key="maxSize" width="128" height="22"/>
-                        <searchField key="view" wantsLayer="YES" verticalHuggingPriority="750" id="284">
+                        <searchField key="view" verticalHuggingPriority="750" id="284">
                             <rect key="frame" x="0.0" y="14" width="96" height="22"/>
                             <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                             <searchFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" borderStyle="bezel" usesSingleLineMode="YES" bezelStyle="round" id="285">
@@ -163,7 +162,6 @@
                             </connections>
                         </searchField>
                     </toolbarItem>
-                    <toolbarItem implicitItemIdentifier="NSToolbarSeparatorItem" id="279"/>
                 </allowedToolbarItems>
                 <defaultToolbarItems>
                     <toolbarItem reference="291"/>
@@ -656,16 +654,16 @@
             </connections>
         </customObject>
         <window title="Preferences" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" hidesOnDeactivate="YES" oneShot="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="202" userLabel="Panel (Preferences)" customClass="NSPanel">
-            <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
+            <windowStyleMask key="styleMask" titled="YES" closable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" bottomStrut="YES"/>
-            <rect key="contentRect" x="196" y="436" width="265" height="114"/>
+            <rect key="contentRect" x="196" y="436" width="400" height="114"/>
             <rect key="screenRect" x="0.0" y="0.0" width="1680" height="1027"/>
             <view key="contentView" id="203">
-                <rect key="frame" x="0.0" y="6" width="265" height="114"/>
+                <rect key="frame" x="0.0" y="6" width="400" height="114"/>
                 <autoresizingMask key="autoresizingMask"/>
                 <subviews>
                     <button id="206">
-                        <rect key="frame" x="18" y="78" width="229" height="18"/>
+                        <rect key="frame" x="18" y="78" width="364" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="Display properties default values" bezelStyle="regularSquare" imagePosition="left" alignment="left" state="on" inset="2" id="269">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
@@ -676,7 +674,7 @@
                         </connections>
                     </button>
                     <button id="208">
-                        <rect key="frame" x="18" y="58" width="229" height="18"/>
+                        <rect key="frame" x="18" y="58" width="364" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="Colorize header file" bezelStyle="regularSquare" imagePosition="left" alignment="left" state="on" inset="2" id="270">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
@@ -687,7 +685,7 @@
                         </connections>
                     </button>
                     <button id="436">
-                        <rect key="frame" x="18" y="38" width="229" height="18"/>
+                        <rect key="frame" x="18" y="38" width="364" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="Add comment for blocks" bezelStyle="regularSquare" imagePosition="left" alignment="left" state="on" inset="2" id="437">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
@@ -698,7 +696,7 @@
                         </connections>
                     </button>
                     <button id="470">
-                        <rect key="frame" x="18" y="18" width="229" height="18"/>
+                        <rect key="frame" x="18" y="18" width="364" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="Simplify Swift types (String? for Optional&lt;String&gt;)" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="471">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>

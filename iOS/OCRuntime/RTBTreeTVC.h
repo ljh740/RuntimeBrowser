@@ -14,8 +14,8 @@
 @interface RTBTreeTVC : UITableViewController <UITableViewDataSource, UITableViewDelegate>
 
 @property BOOL isSubLevel;
-@property (nonatomic, retain) NSArray *classStubs;
-@property (nonatomic, retain) RTBRuntime *allClasses;
-@property (nonatomic, retain) RTBClassDisplayVC *classDisplayVC;
+@property (nonatomic, strong) NSArray *classStubs;
+@property (nonatomic, strong) RTBRuntime *allClasses;
+@property (nonatomic, strong) RTBClassDisplayVC *classDisplayVC;
 
 @end

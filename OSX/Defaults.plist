@@ -8,7 +8,7 @@
 	<false/>
 	<key>RTBColorizeHeaderFile</key>
 	<true/>
-	<key>ViewType</key>
+	<key>RTBViewType</key>
 	<integer>0</integer>
 </dict>
 </plist>

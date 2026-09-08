@@ -47,6 +47,31 @@
 @property (nonatomic, strong) NSMutableDictionary *cachedClassStubsMatchingForSearchStringLowercase;
 @end
 
+@implementation RTBClassBrowser {
+    NSMutableDictionary *_titleRects;
+}
+
+// NSBrowser draws the column titles into a container view of its own, and while
+// the columns scroll it repaints the moving titles without invalidating the area
+// they came from: the titles leave a trail of stale copies. Whenever a title
+// moves, ask the view it was drawn into for a full redraw, which paints the
+// title strip from scratch. The titles stop moving once the scrolling ends, so
+// this settles instead of looping.
+- (void)drawTitleOfColumn:(NSInteger)column inRect:(NSRect)rect {
+    [super drawTitleOfColumn:column inRect:rect];
+    
+    if(_titleRects == nil) _titleRects = [NSMutableDictionary dictionary];
+    
+    NSValue *previousRect = _titleRects[@(column)];
+    _titleRects[@(column)] = [NSValue valueWithRect:rect];
+    
+    if(previousRect && NSEqualRects([previousRect rectValue], rect) == NO) {
+        [[NSView focusView] setNeedsDisplay:YES];
+    }
+}
+
+@end
+
 @implementation AppController
 
 + (void)thisClassIsPartOfTheRuntimeBrowser {}
@@ -274,6 +299,11 @@
 }
 
 - (BOOL)validateMenuItem:(NSMenuItem *)aMenuItem {
+    if([aMenuItem action] == @selector(changeViewTypeFromMenuItem:)) {
+        aMenuItem.state = [aMenuItem tag] == [self currentViewType] ? NSControlStateValueOn : NSControlStateValueOff;
+        return YES;
+    }
+
     if ( [[aMenuItem title] isEqualToString:@"Save As..."] )
         return ( [[[_classBrowser selectedCell] stringValue] length] != 0 );
     return YES;
@@ -288,6 +318,7 @@
 }
 
 - (void)changeViewTypeTo:(RBBrowserViewType)viewType {
+    self.segmentedControl.selectedSegment = viewType;
     [[NSUserDefaults standardUserDefaults] setInteger:viewType forKey:@"RTBViewType"];
     
     NSUInteger nbOfColumns = 1;
@@ -551,7 +582,6 @@ static NSComparisonResult rtb_compareSearchResults(id a, id b, void *context) {
     [_classBrowser setDraggingSourceOperationMask:NSDragOperationEvery forLocal:NO];
     [_classBrowser setAllowsMultipleSelection:YES];
 
-    [_classBrowser setRowHeight:20];
     [_classBrowser setAutohidesScroller:YES];
     [_classBrowser setCellClass:[BrowserCell class]];
 
@@ -574,7 +604,12 @@ static NSComparisonResult rtb_compareSearchResults(id a, id b, void *context) {
     NSIndexPath *ip = [_classBrowser selectionIndexPath];
     id item = [_classBrowser itemAtIndexPath:ip];
     
-    [_classBrowser setTitle:[item nodeInfo] ofColumn:[ip length]];
+    // Selecting a leaf does not create another column. Asking NSBrowser to
+    // title that nonexistent column leaves its title views in a bad state on
+    // recent macOS releases, which can result in duplicated column headings.
+    if(![_classBrowser isLeafItem:item] && [ip length] <= [_classBrowser lastColumn]) {
+        [_classBrowser setTitle:[item nodeInfo] ofColumn:[ip length]];
+    }
     
     if([item isKindOfClass:[BrowserNode class]]) {
         [_label setStringValue:[item nodeName]];

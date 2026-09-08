@@ -11,8 +11,9 @@
 #import "RTBClassCell.h"
 #import "RTBClass.h"
 
-@interface RTBListTVC ()
+@interface RTBListTVC () <UISearchResultsUpdating>
 @property (nonatomic, strong) NSString *filterStringLowercase;
+@property (nonatomic, strong) UISearchController *searchController;
 @end
 
 @implementation RTBListTVC
@@ -25,9 +26,8 @@
 
 - (void)setupIndexedClassStubs {
     
-    self.navigationItem.title = [NSString stringWithFormat:@"%@ (%lu)", self.titleForNavigationItem, (unsigned long)[self.classStubs count]];
-    
     NSMutableArray *ma = [[NSMutableArray alloc] init];
+    NSUInteger displayedCount = 0;
     
     unichar firstLetter = 0;
     unichar currentLetter = 0;
@@ -39,7 +39,9 @@
             continue;
         }
 
-        firstLetter = [cs.displayName characterAtIndex:0];
+        NSString *displayName = cs.displayName ?: cs.classObjectName;
+        if([displayName length] == 0) continue;
+        firstLetter = [displayName characterAtIndex:0];
         
         if(currentLetter == 0) {
             currentLetter = firstLetter;
@@ -56,13 +58,17 @@
         }
         
         [currentLetterClassStubs addObject:cs];
+        displayedCount++;
     }
 
-    NSDictionary *d = [NSDictionary dictionaryWithObject:currentLetterClassStubs
-                                                  forKey:[NSString stringWithFormat:@"%c", currentLetter]];
-    [ma addObject:d];
+    if([currentLetterClassStubs count] > 0) {
+        NSDictionary *d = [NSDictionary dictionaryWithObject:currentLetterClassStubs
+                                                      forKey:[NSString stringWithFormat:@"%c", currentLetter]];
+        [ma addObject:d];
+    }
 
     self.classStubsDictionaries = ma;
+    self.navigationItem.title = [NSString stringWithFormat:@"%@ (%lu)", self.titleForNavigationItem, (unsigned long)displayedCount];
     [self.tableView reloadData];
 }
 
@@ -74,13 +80,18 @@
     if(self.titleForNavigationItem == nil) {
         self.titleForNavigationItem = @"All Classes";
     }
-    
-    [super viewDidLoad];
-}
 
-- (void)viewDidUnload {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [super viewDidUnload];
+    self.tableView.rowHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight = 44.0;
+
+    self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
+    self.searchController.searchResultsUpdater = self;
+    self.searchController.obscuresBackgroundDuringPresentation = NO;
+    self.searchController.searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.searchController.searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.navigationItem.searchController = self.searchController;
+    self.navigationItem.hidesSearchBarWhenScrolling = NO;
+    self.definesPresentationContext = YES;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -99,11 +110,6 @@
     [self setupIndexedClassStubs];
     
     [super viewDidAppear:animated];
-}
-
-- (void)didReceiveMemoryWarning {
-    [super didReceiveMemoryWarning]; // Releases the view if it doesn't have a superview
-    // Release anything that's not essential, such as cached data
 }
 
 #pragma mark Table view methods
@@ -167,20 +173,16 @@
     return a;
 }
 
-#pragma mark UISearchBarDelegate
+#pragma mark UISearchResultsUpdating
 
-- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText { // called when text changes (including clear)
-    
+- (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
+    NSString *searchText = searchController.searchBar.text;
     if([searchText length] > 0) {
-        self.filterStringLowercase = searchText;
+        self.filterStringLowercase = [searchText lowercaseString];
     } else {
         self.filterStringLowercase = nil;
-        
-        [searchBar performSelector:@selector(resignFirstResponder)
-                        withObject:nil
-                        afterDelay:0];
     }
-    
+
     [self setupIndexedClassStubs];
 }
 

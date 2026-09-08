@@ -17,6 +17,7 @@ static NSArray *cachedKeywords = nil;
     RTBMethodCell *cell = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
     cell.textLabel.lineBreakMode = NSLineBreakByWordWrapping;
     cell.textLabel.numberOfLines = 0;
+    cell.textLabel.adjustsFontForContentSizeCategory = YES;
     return cell;
 }
 
@@ -29,13 +30,22 @@ static NSArray *cachedKeywords = nil;
     NSString *returnType = [method returnTypeDecoded];
     
     NSString *selectorString = [method selectorString];
-    
+
+    UIColor *normalColor = [UIColor blackColor];
+    UIColor *specialColor = [UIColor blueColor];
+    UIColor *destructiveColor = [UIColor orangeColor];
+    if(@available(iOS 13.0, *)) {
+        normalColor = [UIColor labelColor];
+        specialColor = [UIColor systemBlueColor];
+        destructiveColor = [UIColor systemOrangeColor];
+    }
+
     if ([selectorString isEqualToString:@"alloc"] || [selectorString isEqualToString:@"init"]) {
-        self.textLabel.textColor = [UIColor blueColor];
+        self.textLabel.textColor = specialColor;
     } else if ([returnType isEqualToString:@"void"]  && !hasArguments && ([selectorString isEqualToString:@".cxx_destruct"] || [selectorString isEqualToString:@"dealloc"])) {
-        self.textLabel.textColor = [UIColor orangeColor];
+        self.textLabel.textColor = destructiveColor;
     } else {
-        self.textLabel.textColor = [UIColor blackColor];
+        self.textLabel.textColor = normalColor;
     }
     
     if(cachedKeywords == nil) {

@@ -41,6 +41,16 @@
     return [NSImage imageNamed:@"class.tiff"];
 }
 
+// NSBrowserCell centers the line box of the title, descender space included, so
+// the letters end up sitting below the middle of the row. Lift the contents by
+// half of that empty space to center what is actually drawn.
+- (void)drawInteriorWithFrame:(NSRect)cellFrame inView:(NSView *)controlView {
+    NSFont *font = [self font] ? [self font] : [NSFont systemFontOfSize:[NSFont systemFontSize]];
+    cellFrame.origin.y -= floor(-[font descender] / 2.0);
+    
+    [super drawInteriorWithFrame:cellFrame inView:controlView];
+}
+
 - (void)setObjectValue:(id)obj {
     
     NSImage *icon = nil;

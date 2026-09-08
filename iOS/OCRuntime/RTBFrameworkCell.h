@@ -11,7 +11,7 @@
 
 @interface RTBFrameworkCell : UITableViewCell
 
-@property (nonatomic, retain) NSString *frameworkName;
+@property (nonatomic, strong) NSString *frameworkName;
 @property (nonatomic) BOOL skipped; // dimmed, its loading crashed the app before
 
 @end

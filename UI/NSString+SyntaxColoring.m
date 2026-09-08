@@ -69,7 +69,11 @@ char **stringArrayFromNSArray(NSArray *a) {
 #if TARGET_OS_IPHONE
     UIFont *font = [UIFont fontWithName:@"Courier" size:12.0];
     UIColor *textColor = [UIColor blackColor];
-    if (@available(iOS 13.0, *)) textColor = [UIColor labelColor];
+    if (@available(iOS 13.0, *)) {
+        UIFont *monospacedFont = [UIFont monospacedSystemFontOfSize:12.0 weight:UIFontWeightRegular];
+        font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody] scaledFontForFont:monospacedFont];
+        textColor = [UIColor labelColor];
+    }
 #else
     NSFont *font = [NSFont fontWithName:@"Courier" size:12.0];
     NSColor *textColor = [NSColor textColor];
@@ -91,9 +95,14 @@ char **stringArrayFromNSArray(NSArray *a) {
     char *tmp = (char *)text;
     
 #if TARGET_OS_IPHONE
-    UIColor *commentsColor = [UIColor systemGreenColor];
-    UIColor *keywordsColor = [UIColor systemPinkColor];
-    UIColor *classesColor = [UIColor systemPurpleColor];
+    UIColor *commentsColor = [UIColor greenColor];
+    UIColor *keywordsColor = [UIColor magentaColor];
+    UIColor *classesColor = [UIColor purpleColor];
+    if (@available(iOS 13.0, *)) {
+        commentsColor = [UIColor systemGreenColor];
+        keywordsColor = [UIColor systemPinkColor];
+        classesColor = [UIColor systemPurpleColor];
+    }
 #else
     NSColor *commentsColor = [NSColor systemGreenColor];
     NSColor *keywordsColor = [NSColor systemPinkColor];

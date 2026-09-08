@@ -11,7 +11,7 @@
 
 @interface RTBProtocolCell : UITableViewCell
 
-@property (nonatomic, retain) RTBProtocol *protocolObject;
+@property (nonatomic, strong) RTBProtocol *protocolObject;
 
 - (IBAction)showHeaders:(id)sender;
 

@@ -35,6 +35,20 @@
 
 @implementation RTBAppDelegate
 
+- (void)configureTabBarItems {
+    if(@available(iOS 13.0, *)) {
+        UITabBarController *tabBarController = (UITabBarController *)self.window.rootViewController;
+        if(![tabBarController isKindOfClass:[UITabBarController class]]) return;
+
+        NSArray<NSString *> *symbolNames = @[@"shippingbox", @"arrow.triangle.branch", @"list.bullet", @"network", @"info.circle"];
+        [tabBarController.viewControllers enumerateObjectsUsingBlock:^(UIViewController *viewController, NSUInteger index, BOOL *stop) {
+            if(index >= [symbolNames count]) return;
+            UIImage *image = [UIImage systemImageNamed:symbolNames[index]];
+            if(image) viewController.tabBarItem.image = image;
+        }];
+    }
+}
+
 //- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 //{
 //    // Override point for customization after application launch.
@@ -487,15 +501,13 @@
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-    
-    self.window.tintColor = [UIColor purpleColor];
-    self.window.backgroundColor = [UIColor whiteColor];
-    
+
     NSString *defaultsPath = [[NSBundle mainBundle] pathForResource:@"Defaults" ofType:@"plist"];
     NSDictionary *defaults = [NSDictionary dictionaryWithContentsOfFile:defaultsPath];
     [[NSUserDefaults standardUserDefaults] registerDefaults:defaults];
     
     self.allClasses = [RTBRuntime sharedInstance];
+    [self configureTabBarItems];
     
     [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"RTBDisplayPropertiesDefaultValues"];
     
@@ -525,10 +537,10 @@
     RTBClassDisplayVC *classDisplayVC = (RTBClassDisplayVC *)[sb instantiateViewControllerWithIdentifier:@"RTBClassDisplayVC"];
     classDisplayVC.className = className;
     
+    // A page sheet, not UIModalPresentationOverCurrentContext: the latter keeps the
+    // presenting view controller on screen, and its title shows through the
+    // translucent navigation bar of the header being presented.
     UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:classDisplayVC];
-    navigationController.modalPresentationStyle = UIModalPresentationOverCurrentContext;
-    
-    self.window.rootViewController.modalTransitionStyle = UIModalTransitionStyleCoverVertical;
     [self.window.rootViewController presentViewController:navigationController animated:YES completion:nil];
 }
 
@@ -538,10 +550,10 @@
     RTBClassDisplayVC *classDisplayVC = (RTBClassDisplayVC *)[sb instantiateViewControllerWithIdentifier:@"RTBClassDisplayVC"];
     classDisplayVC.protocolName = [protocol protocolName];
     
+    // A page sheet, not UIModalPresentationOverCurrentContext: the latter keeps the
+    // presenting view controller on screen, and its title shows through the
+    // translucent navigation bar of the header being presented.
     UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:classDisplayVC];
-    navigationController.modalPresentationStyle = UIModalPresentationOverCurrentContext;
-    
-    self.window.rootViewController.modalTransitionStyle = UIModalTransitionStyleCoverVertical;
     [self.window.rootViewController presentViewController:navigationController animated:YES completion:nil];
 }
 

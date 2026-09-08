@@ -12,10 +12,10 @@
 
 @interface RTBSearchVC : UIViewController <UITableViewDataSource, UISearchBarDelegate>
 
-@property (nonatomic, retain) NSMutableArray *foundClasses;
-@property (nonatomic, retain) RTBRuntime *allClasses;
+@property (nonatomic, strong) NSMutableArray *foundClasses;
+@property (nonatomic, strong) RTBRuntime *allClasses;
 
-@property (nonatomic, retain) IBOutlet UISearchBar *theSearchBar;
-@property (nonatomic, retain) IBOutlet UITableView *tableView;
+@property (nonatomic, strong) IBOutlet UISearchBar *theSearchBar;
+@property (nonatomic, strong) IBOutlet UITableView *tableView;
 
 @end

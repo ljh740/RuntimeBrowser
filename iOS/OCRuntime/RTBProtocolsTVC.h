@@ -10,7 +10,7 @@
 
 @interface RTBProtocolsTVC : UITableViewController
 
-@property (nonatomic, retain) NSArray *protocolStubs;
-@property (nonatomic, retain) NSMutableArray *protocolStubsDictionaries; // [{'A':classStubs}, {'B':classStubs}]
+@property (nonatomic, strong) NSArray *protocolStubs;
+@property (nonatomic, strong) NSMutableArray *protocolStubsDictionaries; // [{'A':classStubs}, {'B':classStubs}]
 
 @end

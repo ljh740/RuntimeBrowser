@@ -12,25 +12,27 @@
 #import "RTBRuntime.h"
 #import "RTBListTVC.h"
 
-@interface RTBProtocolsTVC ()
+@interface RTBProtocolsTVC () <UISearchResultsUpdating>
 @property (nonatomic, strong) NSString *filterStringLowercase;
+@property (nonatomic, strong) UISearchController *searchController;
 @end
 
 @implementation RTBProtocolsTVC
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    
-    // Uncomment the following line to preserve selection between presentations.
-    // self.clearsSelectionOnViewWillAppear = NO;
-    
-    // Uncomment the following line to display an Edit button in the navigation bar for this view controller.
-    // self.navigationItem.rightBarButtonItem = self.editButtonItem;
-}
 
-- (void)didReceiveMemoryWarning {
-    [super didReceiveMemoryWarning];
-    // Dispose of any resources that can be recreated.
+    self.tableView.rowHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight = 44.0;
+
+    self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
+    self.searchController.searchResultsUpdater = self;
+    self.searchController.obscuresBackgroundDuringPresentation = NO;
+    self.searchController.searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.searchController.searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.navigationItem.searchController = self.searchController;
+    self.navigationItem.hidesSearchBarWhenScrolling = NO;
+    self.definesPresentationContext = YES;
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -43,9 +45,8 @@
 
 - (void)setupIndexedClassStubs {
 
-    self.navigationItem.title = [NSString stringWithFormat:@"All Protocols (%lu)", (unsigned long)[self.protocolStubs count]];
-
     NSMutableArray *ma = [[NSMutableArray alloc] init];
+    NSUInteger displayedCount = 0;
     
     unichar firstLetter = 0;
     unichar currentLetter = 0;
@@ -74,13 +75,17 @@
         }
         
         [currentLetterProtocolStubs addObject:p];
+        displayedCount++;
     }
 
-    NSDictionary *d = [NSDictionary dictionaryWithObject:currentLetterProtocolStubs
-                                                  forKey:[NSString stringWithFormat:@"%c", currentLetter]];
-    [ma addObject:d];
+    if([currentLetterProtocolStubs count] > 0) {
+        NSDictionary *d = [NSDictionary dictionaryWithObject:currentLetterProtocolStubs
+                                                      forKey:[NSString stringWithFormat:@"%c", currentLetter]];
+        [ma addObject:d];
+    }
     
     self.protocolStubsDictionaries = ma;
+    self.navigationItem.title = [NSString stringWithFormat:@"All Protocols (%lu)", (unsigned long)displayedCount];
     [self.tableView reloadData];
 }
 
@@ -155,9 +160,7 @@
         [ma addObject:[[d allKeys] lastObject]];
     }
     
-    [ma sortedArrayUsingSelector:@selector(compare:)];
-    
-    return ma;
+    return [ma sortedArrayUsingSelector:@selector(compare:)];
 }
 
 /*
@@ -205,20 +208,16 @@
 */
 
 
-#pragma mark UISearchBarDelegate
+#pragma mark UISearchResultsUpdating
 
-- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText { // called when text changes (including clear)
-    
+- (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
+    NSString *searchText = searchController.searchBar.text;
     if([searchText length] > 0) {
-        self.filterStringLowercase = searchText;
+        self.filterStringLowercase = [searchText lowercaseString];
     } else {
         self.filterStringLowercase = nil;
-        
-        [searchBar performSelector:@selector(resignFirstResponder)
-                        withObject:nil
-                        afterDelay:0];
     }
-    
+
     [self setupIndexedClassStubs];
 }
 

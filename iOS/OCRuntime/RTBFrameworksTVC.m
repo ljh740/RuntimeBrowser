@@ -305,6 +305,8 @@ static const NSUInteger kPrivateFrameworks = 1;
 }
 
 - (void)viewDidLoad {
+    [super viewDidLoad];
+
     self.title = @"Frameworks";
     
     self.allClasses = [RTBRuntime sharedInstance];
@@ -320,10 +322,13 @@ static const NSUInteger kPrivateFrameworks = 1;
 	self.definesPresentationContext = YES;
 	self.searchController.searchResultsUpdater = self;
 	self.searchController.obscuresBackgroundDuringPresentation = NO;
-    self.searchController.hidesNavigationBarDuringPresentation = NO;
-	self.tableView.tableHeaderView = self.searchController.searchBar;
-    
-    [super viewDidLoad];
+    self.searchController.searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.searchController.searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.navigationItem.searchController = self.searchController;
+    self.navigationItem.hidesSearchBarWhenScrolling = NO;
+
+    self.tableView.rowHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight = 44.0;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -340,9 +345,4 @@ static const NSUInteger kPrivateFrameworks = 1;
 //- (void)viewDidDisappear:(BOOL)animated {
 //}
 
-- (void)didReceiveMemoryWarning {
-    [super didReceiveMemoryWarning];
-}
-
 @end
-

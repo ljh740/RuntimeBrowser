@@ -14,8 +14,8 @@
 
 @interface RTBClassDisplayVC ()
 
-@property (nonatomic, retain) IBOutlet UITextView *textView;
-@property (nonatomic, retain) UIBarButtonItem *useButton;
+@property (nonatomic, strong) IBOutlet UITextView *textView;
+@property (nonatomic, strong) UIBarButtonItem *useButton;
 
 @end
 
@@ -36,9 +36,14 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    
-	self.textView.font = [UIFont systemFontOfSize:[UIFont smallSystemFontSize]];
-    
+
+    self.textView.editable = NO;
+    self.textView.selectable = YES;
+    self.textView.alwaysBounceVertical = YES;
+    if(@available(iOS 13.0, *)) {
+        self.textView.backgroundColor = [UIColor systemBackgroundColor];
+    }
+
     self.useButton = _className ? [[UIBarButtonItem alloc] initWithTitle:NSLocalizedString(@"Use", nil) style:UIBarButtonItemStylePlain target:self action:@selector(use:)] : nil;
     self.navigationItem.leftBarButtonItem = self.useButton;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(dismissModalView:)];

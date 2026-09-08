@@ -52,6 +52,9 @@ typedef NS_ENUM(NSInteger, RBBrowserViewType) {
     RBBrowserViewTypeProtocols = 3
 };
 
+@interface RTBClassBrowser : NSBrowser
+@end
+
 @interface AppController : NSObject <NSOpenSavePanelDelegate, NSBrowserDelegate>
 
 @property (nonatomic, strong) IBOutlet NSTextField *label;
