@@ -25,7 +25,7 @@ You can browse the [iOS headers](https://github.com/nst/iOS-Runtime-Headers) as 
     
 ### macOS Version
 
-Latest build: 2026-09-08 [RuntimeBrowser-1.1.zip](http://seriot.ch/runtimebrowser/RuntimeBrowser-1.1.zip) 405 KB, universal, macOS 10.13 or later
+Latest build: 2026-09-08 [RuntimeBrowser-1.1.zip](http://seriot.ch/misc/runtimebrowser/RuntimeBrowser-1.1.zip) 405 KB, universal, macOS 10.13 or later
 
   * browse by class tree, image, list or protocols
   * search in classes contents
